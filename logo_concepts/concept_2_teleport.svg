@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" fill="none">
+  <!-- Background subtle rounded substrate for presentation -->
+  <rect width="512" height="512" rx="112" fill="#0D0F12"/>
+  
+  <!-- Subtle ambient glow around receiver -->
+  <circle cx="370" cy="154" r="80" fill="#53DBC9" fill-opacity="0.12" filter="blur(20px)"/>
+  
+  <!-- Connection Arc / Flick Path (Teleport Trajectory) -->
+  <!-- Main Flick 'F' Body: sweeps from Sender Node (bottom-left) to Receiver Node (top-right) -->
+  <path d="M 152 368 V 186 C 152 144 186 110 228 110 H 340" 
+        stroke="url(#flick-grad-main)" 
+        stroke-width="52" 
+        stroke-linecap="round" 
+        stroke-linejoin="round"/>
+        
+  <!-- Mid Speed Flare (Middle bar of 'F' / Accelerating burst) -->
+  <path d="M 152 254 H 284" 
+        stroke="#53DBC9" 
+        stroke-width="52" 
+        stroke-linecap="round"/>
+
+  <!-- Sender Node (Mobile / Launch origin at bottom left) -->
+  <circle cx="152" cy="368" r="44" fill="#0D0F12" stroke="#53DBC9" stroke-width="14"/>
+  <circle cx="152" cy="368" r="18" fill="#53DBC9"/>
+
+  <!-- Receiver Node (Desktop / Arrival destination at top right) -->
+  <!-- Target ring + Snap Energy Burst -->
+  <circle cx="370" cy="154" r="38" fill="#FF4400"/>
+  <circle cx="370" cy="154" r="16" fill="#FFFFFF"/>
+  
+  <!-- Kinetic Speed Dashes / Particle Ejection (The 'Flick' velocity) -->
+  <line x1="395" y1="120" x2="425" y2="96" stroke="#FF4400" stroke-width="8" stroke-linecap="round"/>
+  <line x1="424" y1="154" x2="456" y2="154" stroke="#FF4400" stroke-width="8" stroke-linecap="round"/>
+  <line x1="395" y1="188" x2="425" y2="212" stroke="#FF4400" stroke-width="8" stroke-linecap="round"/>
+
+  <!-- Gradients -->
+  <defs>
+    <linearGradient id="flick-grad-main" x1="152" y1="368" x2="370" y2="110" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#53DBC9"/>
+      <stop offset="65%" stop-color="#53DBC9"/>
+      <stop offset="100%" stop-color="#FF5511"/>
+    </linearGradient>
+  </defs>
+</svg>

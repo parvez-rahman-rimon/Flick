@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" fill="none">
+  <!-- Substrate: Tactile Slate Matte Background -->
+  <rect width="512" height="512" rx="112" fill="#0C0D10"/>
+  <rect x="8" y="8" width="496" height="496" rx="104" stroke="#1E2026" stroke-width="2"/>
+
+  <!-- ======================================================== -->
+  <!-- 1. PHONE (Vertical Column / Left Spine of 'F')           -->
+  <!-- ======================================================== -->
+  <rect x="132" y="116" width="64" height="280" rx="32" fill="#E8EDF2"/>
+
+  <!-- ======================================================== -->
+  <!-- 2. PC SCREEN (Horizontal Bar / Top Arm of 'F')           -->
+  <!-- ======================================================== -->
+  <rect x="220" y="116" width="168" height="64" rx="32" fill="#E8EDF2"/>
+
+  <!-- ======================================================== -->
+  <!-- 3. THE "FLICK" (A Card Flying at a Dynamic 20° Angle)    -->
+  <!-- Like flicking a playing card across from Phone to PC     -->
+  <!-- ======================================================== -->
+  <g transform="translate(230, 240) rotate(-18)">
+    <!-- Soft Glow -->
+    <rect x="-4" y="-4" width="118" height="72" rx="20" fill="#FF4400" fill-opacity="0.3" filter="blur(10px)"/>
+    <!-- The Flying Card Body -->
+    <rect width="110" height="64" rx="18" fill="#FF4400"/>
+    <!-- Minimalist Document Notch / Visual Weight -->
+    <circle cx="82" cy="32" r="10" fill="#FFFFFF"/>
+    <!-- Trajectory Line / Wind Trail (Minimalist, bold) -->
+    <line x1="-30" y1="32" x2="-8" y2="32" stroke="#FF4400" stroke-width="6" stroke-linecap="round" opacity="0.6"/>
+  </g>
+</svg>

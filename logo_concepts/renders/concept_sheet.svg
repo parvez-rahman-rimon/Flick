@@ -1,0 +1,373 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1600" height="810" viewBox="0 0 1600 810"><rect width="1600" height="810" fill="#f7f7f4"/><text x="60" y="78" font-family="system-ui,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="40" font-weight="700" fill="#161616">Flick — Logo Exploration</text><text x="60" y="116" font-family="system-ui,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="20" fill="#6b6b6b">Concept 2 vs Concept 3 Mockup Review</text><rect x="60" y="150" width="726" height="600" rx="18" fill="#fff" stroke="#e4e4e0" stroke-width="1"/><g><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 512 512" x="90" y="190" width="666" height="300" preserveAspectRatio="xMidYMid meet">
+  <!-- Background subtle rounded substrate for presentation -->
+  <rect width="512" height="512" rx="112" fill="#0D0F12"/>
+  
+  <!-- Subtle ambient glow around receiver -->
+  <circle cx="370" cy="154" r="80" fill="#53DBC9" fill-opacity="0.12" filter="blur(20px)"/>
+  
+  <!-- Connection Arc / Flick Path (Teleport Trajectory) -->
+  <!-- Main Flick 'F' Body: sweeps from Sender Node (bottom-left) to Receiver Node (top-right) -->
+  <path d="M 152 368 V 186 C 152 144 186 110 228 110 H 340" 
+        stroke="url(#c0-flick-grad-main)" 
+        stroke-width="52" 
+        stroke-linecap="round" 
+        stroke-linejoin="round"/>
+        
+  <!-- Mid Speed Flare (Middle bar of 'F' / Accelerating burst) -->
+  <path d="M 152 254 H 284" 
+        stroke="#53DBC9" 
+        stroke-width="52" 
+        stroke-linecap="round"/>
+
+  <!-- Sender Node (Mobile / Launch origin at bottom left) -->
+  <circle cx="152" cy="368" r="44" fill="#0D0F12" stroke="#53DBC9" stroke-width="14"/>
+  <circle cx="152" cy="368" r="18" fill="#53DBC9"/>
+
+  <!-- Receiver Node (Desktop / Arrival destination at top right) -->
+  <!-- Target ring + Snap Energy Burst -->
+  <circle cx="370" cy="154" r="38" fill="#FF4400"/>
+  <circle cx="370" cy="154" r="16" fill="#FFFFFF"/>
+  
+  <!-- Kinetic Speed Dashes / Particle Ejection (The 'Flick' velocity) -->
+  <line x1="395" y1="120" x2="425" y2="96" stroke="#FF4400" stroke-width="8" stroke-linecap="round"/>
+  <line x1="424" y1="154" x2="456" y2="154" stroke="#FF4400" stroke-width="8" stroke-linecap="round"/>
+  <line x1="395" y1="188" x2="425" y2="212" stroke="#FF4400" stroke-width="8" stroke-linecap="round"/>
+
+  <!-- Gradients -->
+  <defs>
+    <linearGradient id="c0-flick-grad-main" x1="152" y1="368" x2="370" y2="110" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#53DBC9"/>
+      <stop offset="65%" stop-color="#53DBC9"/>
+      <stop offset="100%" stop-color="#FF5511"/>
+    </linearGradient>
+  </defs>
+</svg>
+</g><g><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 512 512" x="90" y="516" width="64" height="64" preserveAspectRatio="xMidYMid meet">
+  <!-- Background subtle rounded substrate for presentation -->
+  <rect width="512" height="512" rx="112" fill="#0D0F12"/>
+  
+  <!-- Subtle ambient glow around receiver -->
+  <circle cx="370" cy="154" r="80" fill="#53DBC9" fill-opacity="0.12" filter="blur(20px)"/>
+  
+  <!-- Connection Arc / Flick Path (Teleport Trajectory) -->
+  <!-- Main Flick 'F' Body: sweeps from Sender Node (bottom-left) to Receiver Node (top-right) -->
+  <path d="M 152 368 V 186 C 152 144 186 110 228 110 H 340" 
+        stroke="url(#s064-flick-grad-main)" 
+        stroke-width="52" 
+        stroke-linecap="round" 
+        stroke-linejoin="round"/>
+        
+  <!-- Mid Speed Flare (Middle bar of 'F' / Accelerating burst) -->
+  <path d="M 152 254 H 284" 
+        stroke="#53DBC9" 
+        stroke-width="52" 
+        stroke-linecap="round"/>
+
+  <!-- Sender Node (Mobile / Launch origin at bottom left) -->
+  <circle cx="152" cy="368" r="44" fill="#0D0F12" stroke="#53DBC9" stroke-width="14"/>
+  <circle cx="152" cy="368" r="18" fill="#53DBC9"/>
+
+  <!-- Receiver Node (Desktop / Arrival destination at top right) -->
+  <!-- Target ring + Snap Energy Burst -->
+  <circle cx="370" cy="154" r="38" fill="#FF4400"/>
+  <circle cx="370" cy="154" r="16" fill="#FFFFFF"/>
+  
+  <!-- Kinetic Speed Dashes / Particle Ejection (The 'Flick' velocity) -->
+  <line x1="395" y1="120" x2="425" y2="96" stroke="#FF4400" stroke-width="8" stroke-linecap="round"/>
+  <line x1="424" y1="154" x2="456" y2="154" stroke="#FF4400" stroke-width="8" stroke-linecap="round"/>
+  <line x1="395" y1="188" x2="425" y2="212" stroke="#FF4400" stroke-width="8" stroke-linecap="round"/>
+
+  <!-- Gradients -->
+  <defs>
+    <linearGradient id="s064-flick-grad-main" x1="152" y1="368" x2="370" y2="110" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#53DBC9"/>
+      <stop offset="65%" stop-color="#53DBC9"/>
+      <stop offset="100%" stop-color="#FF5511"/>
+    </linearGradient>
+  </defs>
+</svg>
+</g><text x="122" y="600" font-family="system-ui,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="12" fill="#8a8a8a" text-anchor="middle">64px</text><g><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 512 512" x="180" y="548" width="32" height="32" preserveAspectRatio="xMidYMid meet">
+  <!-- Background subtle rounded substrate for presentation -->
+  <rect width="512" height="512" rx="112" fill="#0D0F12"/>
+  
+  <!-- Subtle ambient glow around receiver -->
+  <circle cx="370" cy="154" r="80" fill="#53DBC9" fill-opacity="0.12" filter="blur(20px)"/>
+  
+  <!-- Connection Arc / Flick Path (Teleport Trajectory) -->
+  <!-- Main Flick 'F' Body: sweeps from Sender Node (bottom-left) to Receiver Node (top-right) -->
+  <path d="M 152 368 V 186 C 152 144 186 110 228 110 H 340" 
+        stroke="url(#s032-flick-grad-main)" 
+        stroke-width="52" 
+        stroke-linecap="round" 
+        stroke-linejoin="round"/>
+        
+  <!-- Mid Speed Flare (Middle bar of 'F' / Accelerating burst) -->
+  <path d="M 152 254 H 284" 
+        stroke="#53DBC9" 
+        stroke-width="52" 
+        stroke-linecap="round"/>
+
+  <!-- Sender Node (Mobile / Launch origin at bottom left) -->
+  <circle cx="152" cy="368" r="44" fill="#0D0F12" stroke="#53DBC9" stroke-width="14"/>
+  <circle cx="152" cy="368" r="18" fill="#53DBC9"/>
+
+  <!-- Receiver Node (Desktop / Arrival destination at top right) -->
+  <!-- Target ring + Snap Energy Burst -->
+  <circle cx="370" cy="154" r="38" fill="#FF4400"/>
+  <circle cx="370" cy="154" r="16" fill="#FFFFFF"/>
+  
+  <!-- Kinetic Speed Dashes / Particle Ejection (The 'Flick' velocity) -->
+  <line x1="395" y1="120" x2="425" y2="96" stroke="#FF4400" stroke-width="8" stroke-linecap="round"/>
+  <line x1="424" y1="154" x2="456" y2="154" stroke="#FF4400" stroke-width="8" stroke-linecap="round"/>
+  <line x1="395" y1="188" x2="425" y2="212" stroke="#FF4400" stroke-width="8" stroke-linecap="round"/>
+
+  <!-- Gradients -->
+  <defs>
+    <linearGradient id="s032-flick-grad-main" x1="152" y1="368" x2="370" y2="110" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#53DBC9"/>
+      <stop offset="65%" stop-color="#53DBC9"/>
+      <stop offset="100%" stop-color="#FF5511"/>
+    </linearGradient>
+  </defs>
+</svg>
+</g><text x="196" y="600" font-family="system-ui,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="12" fill="#8a8a8a" text-anchor="middle">32px</text><g><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 512 512" x="238" y="564" width="16" height="16" preserveAspectRatio="xMidYMid meet">
+  <!-- Background subtle rounded substrate for presentation -->
+  <rect width="512" height="512" rx="112" fill="#0D0F12"/>
+  
+  <!-- Subtle ambient glow around receiver -->
+  <circle cx="370" cy="154" r="80" fill="#53DBC9" fill-opacity="0.12" filter="blur(20px)"/>
+  
+  <!-- Connection Arc / Flick Path (Teleport Trajectory) -->
+  <!-- Main Flick 'F' Body: sweeps from Sender Node (bottom-left) to Receiver Node (top-right) -->
+  <path d="M 152 368 V 186 C 152 144 186 110 228 110 H 340" 
+        stroke="url(#s016-flick-grad-main)" 
+        stroke-width="52" 
+        stroke-linecap="round" 
+        stroke-linejoin="round"/>
+        
+  <!-- Mid Speed Flare (Middle bar of 'F' / Accelerating burst) -->
+  <path d="M 152 254 H 284" 
+        stroke="#53DBC9" 
+        stroke-width="52" 
+        stroke-linecap="round"/>
+
+  <!-- Sender Node (Mobile / Launch origin at bottom left) -->
+  <circle cx="152" cy="368" r="44" fill="#0D0F12" stroke="#53DBC9" stroke-width="14"/>
+  <circle cx="152" cy="368" r="18" fill="#53DBC9"/>
+
+  <!-- Receiver Node (Desktop / Arrival destination at top right) -->
+  <!-- Target ring + Snap Energy Burst -->
+  <circle cx="370" cy="154" r="38" fill="#FF4400"/>
+  <circle cx="370" cy="154" r="16" fill="#FFFFFF"/>
+  
+  <!-- Kinetic Speed Dashes / Particle Ejection (The 'Flick' velocity) -->
+  <line x1="395" y1="120" x2="425" y2="96" stroke="#FF4400" stroke-width="8" stroke-linecap="round"/>
+  <line x1="424" y1="154" x2="456" y2="154" stroke="#FF4400" stroke-width="8" stroke-linecap="round"/>
+  <line x1="395" y1="188" x2="425" y2="212" stroke="#FF4400" stroke-width="8" stroke-linecap="round"/>
+
+  <!-- Gradients -->
+  <defs>
+    <linearGradient id="s016-flick-grad-main" x1="152" y1="368" x2="370" y2="110" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#53DBC9"/>
+      <stop offset="65%" stop-color="#53DBC9"/>
+      <stop offset="100%" stop-color="#FF5511"/>
+    </linearGradient>
+  </defs>
+</svg>
+</g><text x="246" y="600" font-family="system-ui,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="12" fill="#8a8a8a" text-anchor="middle">16px</text><text x="90.0" y="636" font-family="system-ui,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="26" font-weight="700" fill="#161616">A · Concept 2: The Dual-Node Teleport</text><text x="90.0" y="670" font-family="system-ui,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="19" fill="#555">Two-node bridge (Phone to PC) forming a kinetic &#x27;F&#x27; flick arc.</text><rect x="814" y="150" width="726" height="600" rx="18" fill="#fff" stroke="#e4e4e0" stroke-width="1"/><g><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 512 512" x="844" y="190" width="666" height="300" preserveAspectRatio="xMidYMid meet">
+  <!-- Substrate: Tactile Machined Surface -->
+  <rect width="512" height="512" rx="112" fill="#141618"/>
+  <rect x="8" y="8" width="496" height="496" rx="104" stroke="#25282C" stroke-width="3"/>
+
+  <!-- Mechanical Corner Screws (TE hardware touch) -->
+  <circle cx="56" cy="56" r="6" fill="#2A2D32"/>
+  <line x1="53" y1="56" x2="59" y2="56" stroke="#141618" stroke-width="2"/>
+  
+  <circle cx="456" cy="56" r="6" fill="#2A2D32"/>
+  <line x1="453" y1="56" x2="459" y2="56" stroke="#141618" stroke-width="2"/>
+  
+  <circle cx="56" cy="456" r="6" fill="#2A2D32"/>
+  <line x1="53" y1="456" x2="59" y2="456" stroke="#141618" stroke-width="2"/>
+  
+  <circle cx="456" cy="456" r="6" fill="#2A2D32"/>
+  <line x1="453" y1="456" x2="459" y2="456" stroke="#141618" stroke-width="2"/>
+
+  <!-- Main 'F' Vertical Pillar (The Base Chassis) -->
+  <rect x="136" y="120" width="68" height="272" rx="20" fill="#E8EDF2"/>
+
+  <!-- Middle Action Bar (Recessed / flush tactile bar) -->
+  <rect x="204" y="238" width="108" height="58" rx="18" fill="#E8EDF2"/>
+
+  <!-- Lower Shear Base of Top Bar -->
+  <path d="M 204 120 H 262 L 232 178 H 204 V 120 Z" fill="#E8EDF2"/>
+
+  <!-- The "FLICK" Displaced Kinetic Block (The sheared section propelled forward by the snap) -->
+  <!-- Shifted +32px right, -14px up -->
+  <g transform="translate(36, -16)">
+    <path d="M 276 120 L 246 178 H 360 C 372 178 382 168 382 156 V 142 C 382 130 372 120 360 120 H 276 Z" fill="#E8EDF2"/>
+    <!-- Velocity Streak / Wind sheer on the flicked block -->
+    <line x1="396" y1="136" x2="424" y2="136" stroke="#FF4400" stroke-width="6" stroke-linecap="round"/>
+    <line x1="396" y1="162" x2="414" y2="162" stroke="#FF4400" stroke-width="6" stroke-linecap="round"/>
+  </g>
+
+  <!-- The Snap Spark / Actuator (Bright Orange core revealed in the shear gap) -->
+  <circle cx="266" cy="146" r="14" fill="#FF4400"/>
+  <circle cx="266" cy="146" r="6" fill="#FFFFFF"/>
+
+  <!-- Subtle Hardware Calibration Grid / Technical Spec Ticks (Bottom) -->
+  <g opacity="0.4" fill="#8E959E">
+    <circle cx="148" cy="422" r="3"/>
+    <circle cx="164" cy="422" r="3"/>
+    <circle cx="180" cy="422" r="3"/>
+    <circle cx="196" cy="422" r="3"/>
+    <text x="220" y="426" font-family="'Courier New', monospace" font-size="13" font-weight="700" fill="#8E959E" letter-spacing="2">FLICK // 0-LAG</text>
+  </g>
+</svg>
+</g><g><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 512 512" x="844" y="516" width="64" height="64" preserveAspectRatio="xMidYMid meet">
+  <!-- Substrate: Tactile Machined Surface -->
+  <rect width="512" height="512" rx="112" fill="#141618"/>
+  <rect x="8" y="8" width="496" height="496" rx="104" stroke="#25282C" stroke-width="3"/>
+
+  <!-- Mechanical Corner Screws (TE hardware touch) -->
+  <circle cx="56" cy="56" r="6" fill="#2A2D32"/>
+  <line x1="53" y1="56" x2="59" y2="56" stroke="#141618" stroke-width="2"/>
+  
+  <circle cx="456" cy="56" r="6" fill="#2A2D32"/>
+  <line x1="453" y1="56" x2="459" y2="56" stroke="#141618" stroke-width="2"/>
+  
+  <circle cx="56" cy="456" r="6" fill="#2A2D32"/>
+  <line x1="53" y1="456" x2="59" y2="456" stroke="#141618" stroke-width="2"/>
+  
+  <circle cx="456" cy="456" r="6" fill="#2A2D32"/>
+  <line x1="453" y1="456" x2="459" y2="456" stroke="#141618" stroke-width="2"/>
+
+  <!-- Main 'F' Vertical Pillar (The Base Chassis) -->
+  <rect x="136" y="120" width="68" height="272" rx="20" fill="#E8EDF2"/>
+
+  <!-- Middle Action Bar (Recessed / flush tactile bar) -->
+  <rect x="204" y="238" width="108" height="58" rx="18" fill="#E8EDF2"/>
+
+  <!-- Lower Shear Base of Top Bar -->
+  <path d="M 204 120 H 262 L 232 178 H 204 V 120 Z" fill="#E8EDF2"/>
+
+  <!-- The "FLICK" Displaced Kinetic Block (The sheared section propelled forward by the snap) -->
+  <!-- Shifted +32px right, -14px up -->
+  <g transform="translate(36, -16)">
+    <path d="M 276 120 L 246 178 H 360 C 372 178 382 168 382 156 V 142 C 382 130 372 120 360 120 H 276 Z" fill="#E8EDF2"/>
+    <!-- Velocity Streak / Wind sheer on the flicked block -->
+    <line x1="396" y1="136" x2="424" y2="136" stroke="#FF4400" stroke-width="6" stroke-linecap="round"/>
+    <line x1="396" y1="162" x2="414" y2="162" stroke="#FF4400" stroke-width="6" stroke-linecap="round"/>
+  </g>
+
+  <!-- The Snap Spark / Actuator (Bright Orange core revealed in the shear gap) -->
+  <circle cx="266" cy="146" r="14" fill="#FF4400"/>
+  <circle cx="266" cy="146" r="6" fill="#FFFFFF"/>
+
+  <!-- Subtle Hardware Calibration Grid / Technical Spec Ticks (Bottom) -->
+  <g opacity="0.4" fill="#8E959E">
+    <circle cx="148" cy="422" r="3"/>
+    <circle cx="164" cy="422" r="3"/>
+    <circle cx="180" cy="422" r="3"/>
+    <circle cx="196" cy="422" r="3"/>
+    <text x="220" y="426" font-family="'Courier New', monospace" font-size="13" font-weight="700" fill="#8E959E" letter-spacing="2">FLICK // 0-LAG</text>
+  </g>
+</svg>
+</g><text x="876" y="600" font-family="system-ui,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="12" fill="#8a8a8a" text-anchor="middle">64px</text><g><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 512 512" x="934" y="548" width="32" height="32" preserveAspectRatio="xMidYMid meet">
+  <!-- Substrate: Tactile Machined Surface -->
+  <rect width="512" height="512" rx="112" fill="#141618"/>
+  <rect x="8" y="8" width="496" height="496" rx="104" stroke="#25282C" stroke-width="3"/>
+
+  <!-- Mechanical Corner Screws (TE hardware touch) -->
+  <circle cx="56" cy="56" r="6" fill="#2A2D32"/>
+  <line x1="53" y1="56" x2="59" y2="56" stroke="#141618" stroke-width="2"/>
+  
+  <circle cx="456" cy="56" r="6" fill="#2A2D32"/>
+  <line x1="453" y1="56" x2="459" y2="56" stroke="#141618" stroke-width="2"/>
+  
+  <circle cx="56" cy="456" r="6" fill="#2A2D32"/>
+  <line x1="53" y1="456" x2="59" y2="456" stroke="#141618" stroke-width="2"/>
+  
+  <circle cx="456" cy="456" r="6" fill="#2A2D32"/>
+  <line x1="453" y1="456" x2="459" y2="456" stroke="#141618" stroke-width="2"/>
+
+  <!-- Main 'F' Vertical Pillar (The Base Chassis) -->
+  <rect x="136" y="120" width="68" height="272" rx="20" fill="#E8EDF2"/>
+
+  <!-- Middle Action Bar (Recessed / flush tactile bar) -->
+  <rect x="204" y="238" width="108" height="58" rx="18" fill="#E8EDF2"/>
+
+  <!-- Lower Shear Base of Top Bar -->
+  <path d="M 204 120 H 262 L 232 178 H 204 V 120 Z" fill="#E8EDF2"/>
+
+  <!-- The "FLICK" Displaced Kinetic Block (The sheared section propelled forward by the snap) -->
+  <!-- Shifted +32px right, -14px up -->
+  <g transform="translate(36, -16)">
+    <path d="M 276 120 L 246 178 H 360 C 372 178 382 168 382 156 V 142 C 382 130 372 120 360 120 H 276 Z" fill="#E8EDF2"/>
+    <!-- Velocity Streak / Wind sheer on the flicked block -->
+    <line x1="396" y1="136" x2="424" y2="136" stroke="#FF4400" stroke-width="6" stroke-linecap="round"/>
+    <line x1="396" y1="162" x2="414" y2="162" stroke="#FF4400" stroke-width="6" stroke-linecap="round"/>
+  </g>
+
+  <!-- The Snap Spark / Actuator (Bright Orange core revealed in the shear gap) -->
+  <circle cx="266" cy="146" r="14" fill="#FF4400"/>
+  <circle cx="266" cy="146" r="6" fill="#FFFFFF"/>
+
+  <!-- Subtle Hardware Calibration Grid / Technical Spec Ticks (Bottom) -->
+  <g opacity="0.4" fill="#8E959E">
+    <circle cx="148" cy="422" r="3"/>
+    <circle cx="164" cy="422" r="3"/>
+    <circle cx="180" cy="422" r="3"/>
+    <circle cx="196" cy="422" r="3"/>
+    <text x="220" y="426" font-family="'Courier New', monospace" font-size="13" font-weight="700" fill="#8E959E" letter-spacing="2">FLICK // 0-LAG</text>
+  </g>
+</svg>
+</g><text x="950" y="600" font-family="system-ui,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="12" fill="#8a8a8a" text-anchor="middle">32px</text><g><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 512 512" x="992" y="564" width="16" height="16" preserveAspectRatio="xMidYMid meet">
+  <!-- Substrate: Tactile Machined Surface -->
+  <rect width="512" height="512" rx="112" fill="#141618"/>
+  <rect x="8" y="8" width="496" height="496" rx="104" stroke="#25282C" stroke-width="3"/>
+
+  <!-- Mechanical Corner Screws (TE hardware touch) -->
+  <circle cx="56" cy="56" r="6" fill="#2A2D32"/>
+  <line x1="53" y1="56" x2="59" y2="56" stroke="#141618" stroke-width="2"/>
+  
+  <circle cx="456" cy="56" r="6" fill="#2A2D32"/>
+  <line x1="453" y1="56" x2="459" y2="56" stroke="#141618" stroke-width="2"/>
+  
+  <circle cx="56" cy="456" r="6" fill="#2A2D32"/>
+  <line x1="53" y1="456" x2="59" y2="456" stroke="#141618" stroke-width="2"/>
+  
+  <circle cx="456" cy="456" r="6" fill="#2A2D32"/>
+  <line x1="453" y1="456" x2="459" y2="456" stroke="#141618" stroke-width="2"/>
+
+  <!-- Main 'F' Vertical Pillar (The Base Chassis) -->
+  <rect x="136" y="120" width="68" height="272" rx="20" fill="#E8EDF2"/>
+
+  <!-- Middle Action Bar (Recessed / flush tactile bar) -->
+  <rect x="204" y="238" width="108" height="58" rx="18" fill="#E8EDF2"/>
+
+  <!-- Lower Shear Base of Top Bar -->
+  <path d="M 204 120 H 262 L 232 178 H 204 V 120 Z" fill="#E8EDF2"/>
+
+  <!-- The "FLICK" Displaced Kinetic Block (The sheared section propelled forward by the snap) -->
+  <!-- Shifted +32px right, -14px up -->
+  <g transform="translate(36, -16)">
+    <path d="M 276 120 L 246 178 H 360 C 372 178 382 168 382 156 V 142 C 382 130 372 120 360 120 H 276 Z" fill="#E8EDF2"/>
+    <!-- Velocity Streak / Wind sheer on the flicked block -->
+    <line x1="396" y1="136" x2="424" y2="136" stroke="#FF4400" stroke-width="6" stroke-linecap="round"/>
+    <line x1="396" y1="162" x2="414" y2="162" stroke="#FF4400" stroke-width="6" stroke-linecap="round"/>
+  </g>
+
+  <!-- The Snap Spark / Actuator (Bright Orange core revealed in the shear gap) -->
+  <circle cx="266" cy="146" r="14" fill="#FF4400"/>
+  <circle cx="266" cy="146" r="6" fill="#FFFFFF"/>
+
+  <!-- Subtle Hardware Calibration Grid / Technical Spec Ticks (Bottom) -->
+  <g opacity="0.4" fill="#8E959E">
+    <circle cx="148" cy="422" r="3"/>
+    <circle cx="164" cy="422" r="3"/>
+    <circle cx="180" cy="422" r="3"/>
+    <circle cx="196" cy="422" r="3"/>
+    <text x="220" y="426" font-family="'Courier New', monospace" font-size="13" font-weight="700" fill="#8E959E" letter-spacing="2">FLICK // 0-LAG</text>
+  </g>
+</svg>
+</g><text x="1000" y="600" font-family="system-ui,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="12" fill="#8a8a8a" text-anchor="middle">16px</text><text x="844.0" y="636" font-family="system-ui,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="26" font-weight="700" fill="#161616">B · Concept 3: The Sonic Snap (Tactile F)</text><text x="844.0" y="670" font-family="system-ui,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="19" fill="#555">Machined brutalist &#x27;F&#x27; with 45° flick shear displacement and signal</text><text x="844.0" y="696" font-family="system-ui,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="19" fill="#555">orange trigger spark.</text></svg>

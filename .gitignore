@@ -1,0 +1,45 @@
+# Operating System & IDE
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+
+# Local Logs, Scratch & Personal Analysis
+err.txt
+out.txt
+fetch_blog.py
+temp_analysis/
+docs/conversation_*.md
+
+# Compiled Binaries & Packages (distribute via GitHub Releases)
+*.apk
+*.aab
+*.exe
+*.msi
+
+# Rust (windows-receiver-rust)
+windows-receiver-rust/target/
+**/*.rs.bk
+
+# Android / Gradle (android-app)
+android-app/.gradle/
+android-app/.kotlin/
+android-app/build/
+android-app/app/build/
+android-app/local.properties
+*.keystore
+*.jks
+
+# Python / PyInstaller (legacy windows-receiver)
+build/
+dist/
+dist_onedir/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/

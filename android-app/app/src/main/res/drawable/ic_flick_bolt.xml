@@ -1,0 +1,31 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="64dp"
+    android:height="64dp"
+    android:viewportWidth="64"
+    android:viewportHeight="64">
+
+    <!-- Substrate: Dark Tactile Matte Enclosure (#0C0D10) -->
+    <path
+        android:fillColor="#0C0D10"
+        android:pathData="M 18,4 L 46,4 A 14,14 0 0,1 60,18 L 60,46 A 14,14 0 0,1 46,60 L 18,60 A 14,14 0 0,1 4,46 L 4,18 A 14,14 0 0,1 18,4 Z" />
+
+    <!-- 1. The Phone: Vertical Portrait Pill / Left spine of 'F' (#E8EDF2) -->
+    <path
+        android:fillColor="#E8EDF2"
+        android:pathData="M 21,14 L 21,14 A 4,4 0 0,1 25,18 L 25,46 A 4,4 0 0,1 21,50 L 21,50 A 4,4 0 0,1 17,46 L 17,18 A 4,4 0 0,1 21,14 Z" />
+
+    <!-- 2. The PC Screen: Horizontal Landscape Pill / Top bar of 'F' (#E8EDF2) -->
+    <path
+        android:fillColor="#E8EDF2"
+        android:pathData="M 32,14 L 45,14 A 4,4 0 0,1 49,18 L 49,18 A 4,4 0 0,1 45,22 L 32,22 A 4,4 0 0,1 28,18 L 28,18 A 4,4 0 0,1 32,14 Z" />
+
+    <!-- 3. The Flick: Airborne Signal Orange Pill / Middle bar of 'F' (#FF4400) -->
+    <path
+        android:fillColor="#FF4400"
+        android:pathData="M 34,30 L 40,30 A 4,4 0 0,1 44,34 L 44,34 A 4,4 0 0,1 40,38 L 34,38 A 4,4 0 0,1 30,34 L 30,34 A 4,4 0 0,1 34,30 Z" />
+
+    <!-- Inner tactile actuator dot on the orange pill (#FFFFFF) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M 40,34 m -1.5,0 a 1.5,1.5 0 1,0 3,0 a 1.5,1.5 0 1,0 -3,0" />
+</vector>

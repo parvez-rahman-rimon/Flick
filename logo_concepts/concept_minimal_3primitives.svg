@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" fill="none">
+  <!-- Substrate: Tactile Slate Matte Background -->
+  <rect width="512" height="512" rx="112" fill="#0C0D10"/>
+  <rect x="8" y="8" width="496" height="496" rx="104" stroke="#1E2026" stroke-width="2"/>
+
+  <!-- ======================================================== -->
+  <!-- THE 3 PRIMITIVES (Zero Clutter, 100% Pure Iconic Geometry)-->
+  <!-- ======================================================== -->
+
+  <!-- 1. THE PHONE: Solid vertical portrait pill (Left spine of 'F') -->
+  <rect x="136" y="116" width="60" height="280" rx="30" fill="#EAEFF5"/>
+
+  <!-- 2. THE PC MONITOR: Solid horizontal landscape pill (Top bar of 'F') -->
+  <rect x="220" y="116" width="168" height="60" rx="30" fill="#EAEFF5"/>
+
+  <!-- 3. THE FLICK / TURI: Flying airborne pill (Middle bar of 'F') -->
+  <!-- Floating in mid-air gap, propelled forward in vibrant Signal Orange -->
+  <g transform="translate(236, 238)">
+    <!-- Soft energetic glow for dark mode brilliance -->
+    <rect x="-6" y="-6" width="124" height="72" rx="36" fill="#FF4400" fill-opacity="0.25" filter="blur(12px)"/>
+    <!-- The Flicked Token (Physical Orange Pill) -->
+    <rect width="112" height="60" rx="30" fill="#FF4400"/>
+    <!-- Subtle tactile snap dot inside (The trigger core) -->
+    <circle cx="82" cy="30" r="10" fill="#FFFFFF"/>
+  </g>
+
+  <!-- High-end industrial hardware tick marks (Teenage Engineering touch, 0 clutter) -->
+  <circle cx="166" cy="428" r="4" fill="#3A3E47"/>
+  <circle cx="236" cy="428" r="4" fill="#3A3E47"/>
+  <circle cx="306" cy="428" r="4" fill="#3A3E47"/>
+</svg>

@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" fill="none">
+  <!-- Substrate: Tactile Dark Chassis with soft bevel -->
+  <rect width="512" height="512" rx="112" fill="#121417"/>
+  <rect x="8" y="8" width="496" height="496" rx="104" stroke="#22252A" stroke-width="2"/>
+
+  <!-- Subtle glow connecting the two devices -->
+  <ellipse cx="270" cy="230" rx="120" ry="80" fill="#53DBC9" fill-opacity="0.08" filter="blur(30px)"/>
+
+  <!-- ============================================== -->
+  <!-- 1. THE PHONE (Vertical Stem of the 'F')        -->
+  <!-- ============================================== -->
+  <!-- Phone body: sleek vertical portrait rectangle -->
+  <rect x="120" y="112" width="84" height="288" rx="22" fill="#1C1F24" stroke="#3A3F47" stroke-width="3"/>
+  <!-- Phone Screen Area -->
+  <rect x="130" y="132" width="64" height="236" rx="12" fill="#252A32"/>
+  <!-- Phone speaker notch / sensor at top -->
+  <rect x="146" y="121" width="32" height="4" rx="2" fill="#4B525D"/>
+  <!-- Phone home indicator bar at bottom -->
+  <rect x="148" y="386" width="28" height="3" rx="1.5" fill="#4B525D"/>
+
+  <!-- ============================================== -->
+  <!-- 2. THE PC MONITOR (Top Horizontal Arm of 'F') -->
+  <!-- ============================================== -->
+  <!-- Monitor frame: landscape screen extending rightwards -->
+  <rect x="236" y="112" width="168" height="106" rx="18" fill="#1C1F24" stroke="#3A3F47" stroke-width="3"/>
+  <!-- PC Screen Glass Area -->
+  <rect x="246" y="122" width="148" height="86" rx="10" fill="#252A32"/>
+  <!-- PC Display Stand / Pedestal underneath -->
+  <path d="M 308 218 L 302 236 H 338 L 332 218 Z" fill="#3A3F47"/>
+  <rect x="290" y="236" width="60" height="6" rx="3" fill="#4B525D"/>
+  <!-- Window Header / Titlebar Dots on PC Screen -->
+  <circle cx="260" cy="134" r="3" fill="#53DBC9"/>
+  <circle cx="270" cy="134" r="3" fill="#4B525D"/>
+  <circle cx="280" cy="134" r="3" fill="#4B525D"/>
+
+  <!-- ============================================== -->
+  <!-- 3. THE "FLICK" ACTION (Middle Arm of 'F')      -->
+  <!-- A file card caught in mid-air effortless leap  -->
+  <!-- ============================================== -->
+  <!-- Trajectory motion path / spring leap arc from Phone to PC -->
+  <path d="M 178 300 C 220 300 240 260 264 212" stroke="#53DBC9" stroke-width="4" stroke-dasharray="6 6" stroke-linecap="round" opacity="0.6"/>
+
+  <!-- The Airborne File / Clipboard Card (The middle bar of 'F') -->
+  <!-- Tilted slightly (8 deg) showing aerodynamic flight / flick -->
+  <g transform="translate(204, 252) rotate(-8)">
+    <!-- File card glow -->
+    <rect x="-4" y="-4" width="96" height="64" rx="14" fill="#FF4400" fill-opacity="0.2" filter="blur(8px)"/>
+    <!-- File card body -->
+    <rect x="0" y="0" width="88" height="56" rx="12" fill="#FF4400"/>
+    <!-- Folded corner / document tab detail -->
+    <path d="M 64 0 L 88 24 H 74 C 68.477 24 64 19.523 64 14 V 0 Z" fill="#FFA07A"/>
+    <!-- Clean data lines inside card -->
+    <rect x="14" y="18" width="38" height="4" rx="2" fill="#FFFFFF"/>
+    <rect x="14" y="28" width="48" height="4" rx="2" fill="#FFFFFF" fill-opacity="0.8"/>
+    <rect x="14" y="38" width="28" height="4" rx="2" fill="#FFFFFF" fill-opacity="0.6"/>
+  </g>
+
+  <!-- Speed sparkles around the card (The Snap/Flick effect) -->
+  <circle cx="204" cy="242" r="3" fill="#FF4400"/>
+  <circle cx="304" cy="286" r="2.5" fill="#53DBC9"/>
+  <circle cx="316" cy="218" r="4" fill="#53DBC9"/>
+
+  <!-- Technical Monospace Brand Mark at bottom -->
+  <text x="256" y="456" text-anchor="middle" font-family="'JetBrains Mono', monospace" font-size="12" font-weight="700" fill="#4B525D" letter-spacing="4">
+    PHONE [ ] ─── FLICK ───&gt; [PC]
+  </text>
+</svg>

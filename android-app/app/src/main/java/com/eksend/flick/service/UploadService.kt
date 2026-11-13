@@ -1,0 +1,322 @@
+package com.eksend.flick.service
+
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.Service
+import android.content.Context
+import android.content.Intent
+import android.content.pm.ServiceInfo
+import android.net.Uri
+import android.os.Build
+import android.os.IBinder
+import android.provider.OpenableColumns
+import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
+import com.eksend.flick.R
+import com.eksend.flick.data.FlickPreferences
+import com.eksend.flick.data.TransferRecord
+import com.eksend.flick.network.FlickHttpClient
+import com.eksend.flick.network.PcAutoRouter
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+class UploadService : Service() {
+
+    private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    companion object {
+        const val ACTION_UPLOAD = "com.eksend.flick.action.UPLOAD"
+        const val EXTRA_URIS = "extra_uris"
+        const val EXTRA_TEXT = "extra_text"
+        const val EXTRA_CLIPBOARD_MODE = "extra_clipboard_mode"
+        const val EXTRA_TARGET_PC_ID = "extra_target_pc_id"
+
+        private const val CHANNEL_ID = "flick_transfers"
+        private const val NOTIFICATION_ID = 45455
+    }
+
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onCreate() {
+        super.onCreate()
+        createNotificationChannel()
+    }
+
+    override fun onDestroy() {
+        serviceScope.cancel()
+        super.onDestroy()
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val notification = buildForegroundNotification("Sending to PC...")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ServiceCompat.startForeground(
+                this,
+                NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            )
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
+        }
+
+        if (intent != null) {
+            handleIntent(intent)
+        } else {
+            stopSelf()
+        }
+
+        return START_NOT_STICKY
+    }
+
+    private fun handleIntent(intent: Intent) {
+        val prefs = FlickPreferences(applicationContext)
+        val pc = prefs.getActivePc()
+
+        if (pc == null) {
+            HapticHelper.triggerError(applicationContext, "No PC paired. Open Flick to pair.")
+            stopSelf()
+            return
+        }
+
+        val textPayload = intent.getStringExtra(EXTRA_TEXT)
+        val uris: List<Uri> = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            intent.getParcelableArrayListExtra(EXTRA_URIS, Uri::class.java) ?: emptyList()
+        } else {
+            @Suppress("DEPRECATION")
+            intent.getParcelableArrayListExtra(EXTRA_URIS) ?: emptyList()
+        }
+        val modeOverride = intent.getStringExtra(EXTRA_CLIPBOARD_MODE) ?: prefs.clipboardModeOverride
+
+        serviceScope.launch {
+            // 1. Resolve Target IP (< 150ms cached ping -> UDP fallback)
+            val targetIp = PcAutoRouter.resolveTargetIp(applicationContext, pc)
+            if (targetIp == null) {
+                HapticHelper.triggerError(applicationContext, "${pc.pcName} is offline or unreachable on Wi-Fi")
+                stopSelf()
+                return@launch
+            }
+
+            // 2. Handle Plain Text Payload
+            if (!textPayload.isNullOrEmpty() && uris.isEmpty()) {
+                val start = System.currentTimeMillis()
+                val result = FlickHttpClient.sendClipboardText(
+                    targetIp = targetIp,
+                    port = pc.port,
+                    authToken = pc.authToken,
+                    pcSpkiPin = pc.pcSpkiPin,
+                    text = textPayload
+                )
+                val elapsed = System.currentTimeMillis() - start
+                if (result.isSuccess) {
+                    prefs.recordTransfer(
+                        TransferRecord(
+                            fileName = if (textPayload.length > 30) textPayload.take(30) + "..." else textPayload,
+                            mimeType = "text/plain",
+                            bytes = textPayload.toByteArray().size.toLong(),
+                            elapsedMs = elapsed,
+                            success = true
+                        )
+                    )
+                    HapticHelper.triggerSuccess(applicationContext, "⚡ Copied to PC Clipboard")
+                } else {
+                    HapticHelper.triggerError(applicationContext, "Text teleport failed")
+                }
+                stopSelf()
+                return@launch
+            }
+
+            // 3. Handle File URIs Payload
+            if (uris.isNotEmpty()) {
+                val totalCount = uris.size
+                var allSuccess = true
+
+                for ((index, uri) in uris.withIndex()) {
+                    val metadata = queryUriMetadata(uri)
+                    val start = System.currentTimeMillis()
+
+                    val uploadRes = FlickHttpClient.uploadStream(
+                        targetIp = targetIp,
+                        port = pc.port,
+                        authToken = pc.authToken,
+                        pcSpkiPin = pc.pcSpkiPin,
+                        fileName = metadata.name,
+                        mimeType = metadata.mimeType,
+                        clipboardMode = modeOverride,
+                        batchIndex = index,
+                        batchTotal = totalCount,
+                        contentLength = metadata.size
+                    ) {
+                        contentResolver.openInputStream(uri)
+                            ?: throw java.io.IOException("Cannot open input stream for $uri")
+                    }
+
+                    val elapsed = System.currentTimeMillis() - start
+                    if (uploadRes.isSuccess) {
+                        val thumbPath = generateThumbnail(uri, metadata.mimeType)
+                        prefs.recordTransfer(
+                            TransferRecord(
+                                fileName = metadata.name,
+                                mimeType = metadata.mimeType,
+                                bytes = metadata.size,
+                                elapsedMs = elapsed,
+                                success = true,
+                                thumbnailPath = thumbPath
+                            )
+                        )
+                    } else {
+                        allSuccess = false
+                    }
+                }
+
+                if (allSuccess) {
+                    val msg = if (totalCount == 1) "⚡ Copied to PC Clipboard" else "⚡ $totalCount files copied to PC"
+                    HapticHelper.triggerSuccess(applicationContext, msg)
+                    kotlinx.coroutines.delay(160)
+                } else {
+                    HapticHelper.triggerError(applicationContext, "Transfer failed")
+                    kotlinx.coroutines.delay(200)
+                }
+            }
+
+            stopSelf()
+        }
+    }
+
+    private data class UriMetadata(val name: String, val mimeType: String, val size: Long)
+
+    private fun queryUriMetadata(uri: Uri): UriMetadata {
+        var name = "flick_${System.currentTimeMillis()}"
+        var size = -1L
+        val mimeType = contentResolver.getType(uri) ?: "application/octet-stream"
+
+        try {
+            contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
+                if (cursor.moveToFirst()) {
+                    if (nameIndex != -1) name = cursor.getString(nameIndex) ?: name
+                    if (sizeIndex != -1) size = cursor.getLong(sizeIndex)
+                }
+            }
+        } catch (_: Exception) {}
+
+        return UriMetadata(name, mimeType, size)
+    }
+
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                CHANNEL_ID,
+                "Flick Transfers",
+                NotificationManager.IMPORTANCE_LOW
+            ).apply {
+                description = "Shows progress during active Flick transfers to PC"
+                setShowBadge(false)
+            }
+            val manager = getSystemService(NotificationManager::class.java)
+            manager?.createNotificationChannel(channel)
+        }
+    }
+
+    private fun buildForegroundNotification(title: String): Notification {
+        return NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle(title)
+            .setContentText("Teleporting to PC Clipboard...")
+            .setSmallIcon(R.drawable.ic_flick_bolt)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setOngoing(true)
+            .build()
+    }
+
+    private fun generateThumbnail(uri: Uri, mimeType: String): String? {
+        val isImage = mimeType.startsWith("image/")
+        val isVideo = mimeType.startsWith("video/")
+        if (!isImage && !isVideo) return null
+
+        return try {
+            val thumbDir = java.io.File(cacheDir, "thumbnails").apply { mkdirs() }
+            val thumbFile = java.io.File(thumbDir, "${java.util.UUID.randomUUID()}.jpg")
+
+            var bitmap: android.graphics.Bitmap? = null
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                try {
+                    bitmap = contentResolver.loadThumbnail(uri, android.util.Size(320, 320), null)
+                } catch (_: Exception) {}
+            }
+
+            if (bitmap == null) {
+                if (isImage) {
+                    contentResolver.openInputStream(uri)?.use { stream ->
+                        val options = android.graphics.BitmapFactory.Options().apply {
+                            inJustDecodeBounds = true
+                        }
+                        android.graphics.BitmapFactory.decodeStream(stream, null, options)
+                        val sampleSize = calculateInSampleSize(options, 320, 320)
+                        val decodeOptions = android.graphics.BitmapFactory.Options().apply {
+                            inSampleSize = sampleSize
+                        }
+                        contentResolver.openInputStream(uri)?.use { s2 ->
+                            bitmap = android.graphics.BitmapFactory.decodeStream(s2, null, decodeOptions)
+                        }
+                    }
+                } else if (isVideo) {
+                    try {
+                        val retriever = android.media.MediaMetadataRetriever()
+                        retriever.setDataSource(applicationContext, uri)
+                        bitmap = retriever.getFrameAtTime(0, android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                        retriever.release()
+                    } catch (_: Exception) {}
+                }
+            }
+
+            if (bitmap != null) {
+                val maxDim = maxOf(bitmap.width, bitmap.height)
+                val targetBmp = if (maxDim > 320) {
+                    val scale = 320f / maxDim
+                    android.graphics.Bitmap.createScaledBitmap(
+                        bitmap,
+                        (bitmap.width * scale).toInt().coerceAtLeast(1),
+                        (bitmap.height * scale).toInt().coerceAtLeast(1),
+                        true
+                    )
+                } else {
+                    bitmap
+                }
+
+                java.io.FileOutputStream(thumbFile).use { out ->
+                    targetBmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, out)
+                }
+                thumbFile.absolutePath
+            } else {
+                null
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun calculateInSampleSize(
+        options: android.graphics.BitmapFactory.Options,
+        reqWidth: Int,
+        reqHeight: Int
+    ): Int {
+        val height = options.outHeight
+        val width = options.outWidth
+        var inSampleSize = 1
+        if (height > reqHeight || width > reqWidth) {
+            val halfHeight = height / 2
+            val halfWidth = width / 2
+            while ((halfHeight / inSampleSize) >= reqHeight && (halfWidth / inSampleSize) >= reqWidth) {
+                inSampleSize *= 2
+            }
+        }
+        return inSampleSize
+    }
+}
