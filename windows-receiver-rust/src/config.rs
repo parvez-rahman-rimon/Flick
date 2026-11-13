@@ -36,6 +36,8 @@ pub struct FlickConfig {
     pub clipboard_mode: String,
     #[serde(default = "default_play_sound")]
     pub play_sound: bool,
+    #[serde(default = "default_winv_history_stack")]
+    pub winv_history_stack: bool,
     #[serde(default)]
     pub paired_devices: Vec<PairedDevice>,
 }
@@ -47,6 +49,9 @@ fn default_udp_port() -> u16 {
     45454
 }
 fn default_play_sound() -> bool {
+    true
+}
+fn default_winv_history_stack() -> bool {
     true
 }
 fn default_clipboard_mode() -> String {
@@ -109,6 +114,7 @@ fn init_default_config() -> FlickConfig {
         save_directory: default_dir.to_string_lossy().to_string(),
         clipboard_mode: "SMART_MULTI".to_string(),
         play_sound: true,
+        winv_history_stack: true,
         paired_devices: Vec::new(),
     }
 }
@@ -183,6 +189,12 @@ pub fn set_clipboard_mode(mode: &str) {
 pub fn set_save_directory(dir: &str) {
     let mut cfg = get_config();
     cfg.save_directory = dir.to_string();
+    save_config(&cfg);
+}
+
+pub fn set_winv_history_stack(enabled: bool) {
+    let mut cfg = get_config();
+    cfg.winv_history_stack = enabled;
     save_config(&cfg);
 }
 

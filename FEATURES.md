@@ -86,5 +86,15 @@ When `SMART_MULTI` mode is active on the Windows Receiver and an image (`photo.j
 | **Tactile Dual-Pulse Haptics** | Android (`HapticHelper.kt`) | Upgraded with `VibrationAttributes.USAGE_NOTIFICATION` to bypass OEM background haptic muting (Nothing OS / Android 16). Delivers a 35ms touch tick on share tap and a crisp 45ms+65ms completion pulse. |
 | **Warm Harmonic Chime** | Windows (`http_receiver.py`) | Synthesizes a 450ms dual-sine chime (E5 + G#5) with 25ms soft attack, exponential decay tail, and low volume amplitude (~12% / -18 dB) for relaxing, non-jarring audio feedback. |
 
+---
+
+## 4. Multi-File Batch & `Win + V` Image Stacking (v2 Update)
+
+| Enhancement | Component | Details |
+| :--- | :--- | :--- |
+| **UUID Batch Grouping (`X-Batch-Id`)** | Android (`UploadService.kt`, `FlickHttpClient.kt`) & Rust (`http_server.rs`) | Generates a per-batch `X-Batch-Id` UUID for multi-file transfers (with `ip:<peer_ip>` fallback and 120s stale eviction) and flushes the entire batch atomically into Windows clipboard once all items arrive. |
+| **Uniform `DEFAULT` Mode Resolution & Multi-Image `CF_HDROP`** | Rust (`http_server.rs`, `clipboard.rs`) | Maps `X-Clipboard-Mode: DEFAULT` to the receiver's configured mode (`cfg.clipboard_mode`), and ensures `FORCE_IMAGE` injects `CF_HDROP` for multi-image batches instead of leaving the clipboard empty. |
+| **Serialized `Win + V` Image History Stacking** | Rust (`clipboard.rs`, `config.rs`, `tray.rs`) | Enabled by default (`winv_history_stack`, toggleable via tray menu **`Stack Images in Win+V History`**). Pre-pushes up to 10 images per batch as pure `CF_DIB` snapshots at `700ms` intervals on a single background worker queue, then marks the final multi-format snapshot with `CanIncludeInClipboardHistory = 0` so `Win + V` preserves clean per-image thumbnails while `Ctrl + V` retains the full `CF_HDROP` + `CF_UNICODETEXT` batch. |
+
 
 

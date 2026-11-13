@@ -1,15 +1,15 @@
 use std::ffi::OsStr;
 use std::fs::File;
 use std::os::windows::ffi::OsStrExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::ptr::copy_nonoverlapping;
-use std::sync::Mutex;
+use std::sync::{mpsc, Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
 
 use windows_sys::Win32::Foundation::{GetLastError, GlobalFree, HANDLE, HWND};
 use windows_sys::Win32::System::DataExchange::{
-    CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
+    CloseClipboard, EmptyClipboard, OpenClipboard, RegisterClipboardFormatW, SetClipboardData,
 };
 use windows_sys::Win32::System::Memory::{
     GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE, GMEM_ZEROINIT,
@@ -157,18 +157,217 @@ pub fn inject_text(text: &str) -> Result<(), String> {
     Ok(())
 }
 
+const MAX_DIB_FILE_BYTES: u64 = 32 * 1024 * 1024;
+const MAX_DIB_PIXELS: u64 = 36_000_000;
+const WINV_CAPTURE_DELAY_MS: u64 = 700;
+const MAX_WINV_STACK_IMAGES: usize = 10;
+
+pub fn is_supported_image_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|s| s.to_str())
+        .map(|ext| {
+            matches!(
+                ext.to_ascii_lowercase().as_str(),
+                "png" | "jpg" | "jpeg" | "webp" | "bmp" | "gif"
+            )
+        })
+        .unwrap_or(false)
+}
+
+/// Returns whether individual `CF_DIB` snapshots should be pushed first so Windows
+/// `Win + V` Clipboard History records clean image thumbnails before the final payload.
+pub fn should_prepush_dib_to_winv(
+    mode: &str,
+    file_count: usize,
+    image_count: usize,
+    stack_winv: bool,
+) -> bool {
+    if !stack_winv || image_count == 0 {
+        return false;
+    }
+    match normalize_clipboard_mode(mode) {
+        // SMART_MULTI always includes CF_UNICODETEXT, which overrides CF_DIB in Win+V unless
+        // a pure CF_DIB snapshot is pushed beforehand.
+        "SMART_MULTI" => true,
+        // FORCE_IMAGE omits CF_UNICODETEXT: for 1 image, inject_files already sets CF_DIB
+        // directly; for >1 images, pre-push each image individually to Win+V.
+        "FORCE_IMAGE" => file_count > 1,
+        _ => false,
+    }
+}
+
+pub fn planned_clipboard_formats(paths: &[PathBuf], mode: &str) -> Vec<&'static str> {
+    let (include_text, include_hdrop, include_dib) =
+        compute_clipboard_format_plan(mode, paths.len());
+    let mut out = Vec::new();
+    if include_text {
+        out.push("CF_UNICODETEXT");
+    }
+    if include_hdrop {
+        out.push("CF_HDROP");
+    }
+    if include_dib && paths.len() == 1 && is_supported_image_path(&paths[0]) {
+        out.push("CF_DIB");
+    }
+    out
+}
+
+/// Injects only `CF_DIB` for a single image so Windows `Win + V` captures its thumbnail.
+pub fn inject_single_dib(path: &Path) -> Result<(), String> {
+    if !is_supported_image_path(path) {
+        return Err("Unsupported image format for CF_DIB".to_string());
+    }
+    let dib_bytes = decode_image_to_dib(path)?;
+    let _mutex = CLIPBOARD_MUTEX.lock().unwrap();
+    let _guard = ClipboardGuard::open()?;
+    unsafe {
+        EmptyClipboard();
+        alloc_and_set_clipboard(CF_DIB, &dib_bytes)?;
+    }
+    trim_working_set();
+    Ok(())
+}
+
+enum ClipboardJob {
+    Files {
+        paths: Vec<PathBuf>,
+        mode: String,
+        stack_winv: bool,
+    },
+    Text(String),
+}
+
+static CLIPBOARD_TX: OnceLock<mpsc::Sender<ClipboardJob>> = OnceLock::new();
+
+fn get_clipboard_worker() -> &'static mpsc::Sender<ClipboardJob> {
+    CLIPBOARD_TX.get_or_init(|| {
+        let (tx, rx) = mpsc::channel::<ClipboardJob>();
+        let _ = thread::Builder::new()
+            .name("flick-clipboard-worker".to_string())
+            .stack_size(512 * 1024)
+            .spawn(move || {
+                while let Ok(job) = rx.recv() {
+                    match job {
+                        ClipboardJob::Text(text) => {
+                            let _ = inject_text(&text);
+                        }
+                        ClipboardJob::Files {
+                            paths,
+                            mode,
+                            stack_winv,
+                        } => {
+                            deliver_files_job(&paths, &mode, stack_winv);
+                        }
+                    }
+                }
+            });
+        tx
+    })
+}
+
+pub fn enqueue_files_delivery(paths: Vec<PathBuf>, mode: String, stack_winv: bool) {
+    let _ = get_clipboard_worker().send(ClipboardJob::Files {
+        paths,
+        mode,
+        stack_winv,
+    });
+}
+
+pub fn enqueue_text_delivery(text: String) {
+    let _ = get_clipboard_worker().send(ClipboardJob::Text(text));
+}
+
+fn deliver_files_job(paths: &[PathBuf], mode: &str, stack_winv: bool) {
+    let image_paths: Vec<&Path> = paths
+        .iter()
+        .map(|p| p.as_path())
+        .filter(|p| is_supported_image_path(p))
+        .collect();
+
+    let mut prepushed_any = false;
+    if should_prepush_dib_to_winv(mode, paths.len(), image_paths.len(), stack_winv) {
+        for img_path in image_paths.iter().take(MAX_WINV_STACK_IMAGES) {
+            if inject_single_dib(img_path).is_ok() {
+                prepushed_any = true;
+                thread::sleep(Duration::from_millis(WINV_CAPTURE_DELAY_MS));
+            }
+        }
+    }
+
+    let path_refs: Vec<&Path> = paths.iter().map(|p| p.as_path()).collect();
+    let _ = inject_files_with_options(&path_refs, mode, prepushed_any);
+}
+
+/// Normalizes a clipboard mode string, mapping empty, `"DEFAULT"`, or unrecognized
+/// values to `"SMART_MULTI"`.
+pub fn normalize_clipboard_mode(mode: &str) -> &'static str {
+    match mode.trim().to_ascii_uppercase().as_str() {
+        "FORCE_PATH" => "FORCE_PATH",
+        "FORCE_IMAGE" => "FORCE_IMAGE",
+        "FORCE_FILE" => "FORCE_FILE",
+        _ => "SMART_MULTI",
+    }
+}
+
+/// Computes `(include_text, include_hdrop, include_dib)` for the given normalized mode
+/// and file count. Win32 `CF_DIB` only holds a single bitmap, so multi-image batches
+/// rely on `CF_HDROP` to paste all images together.
+pub fn compute_clipboard_format_plan(mode: &str, file_count: usize) -> (bool, bool, bool) {
+    if file_count == 0 {
+        return (false, false, false);
+    }
+    match normalize_clipboard_mode(mode) {
+        "FORCE_PATH" => (true, false, false),
+        "FORCE_FILE" => (false, true, false),
+        "FORCE_IMAGE" => (false, true, file_count == 1),
+        _ => (true, true, file_count == 1), // SMART_MULTI
+    }
+}
+
+unsafe fn exclude_snapshot_from_winv_history() {
+    for fmt_name in [
+        "CanIncludeInClipboardHistory",
+        "CanUploadToCloudClipboard",
+    ] {
+        let wide: Vec<u16> = OsStr::new(fmt_name).encode_wide().chain(Some(0)).collect();
+        let fmt_id = RegisterClipboardFormatW(wide.as_ptr());
+        if fmt_id != 0 {
+            let _ = alloc_and_set_clipboard(fmt_id, &0u32.to_le_bytes());
+        }
+    }
+}
+
+#[allow(dead_code)]
 pub fn inject_files(paths: &[&Path], mode: &str) -> Result<Vec<&'static str>, String> {
+    inject_files_with_options(paths, mode, false)
+}
+
+pub fn inject_files_with_options(
+    paths: &[&Path],
+    mode: &str,
+    exclude_from_history: bool,
+) -> Result<Vec<&'static str>, String> {
+    if paths.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let (include_text, include_hdrop, include_dib) =
+        compute_clipboard_format_plan(mode, paths.len());
+
     let _mutex = CLIPBOARD_MUTEX.lock().unwrap();
     let _guard = ClipboardGuard::open()?;
 
     unsafe {
         EmptyClipboard();
+        if exclude_from_history {
+            exclude_snapshot_from_winv_history();
+        }
     }
 
     let mut formats_applied = Vec::new();
 
     // 1. Text format (Path representation)
-    if mode != "FORCE_IMAGE" {
+    if include_text {
         let text_lines: Vec<String> = paths
             .iter()
             .map(|p| {
@@ -190,8 +389,8 @@ pub fn inject_files(paths: &[&Path], mode: &str) -> Result<Vec<&'static str>, St
         }
     }
 
-    // 2. CF_HDROP format (File drop)
-    if mode != "FORCE_PATH" && mode != "FORCE_IMAGE" {
+    // 2. CF_HDROP format (Single or multi-file drop list)
+    if include_hdrop {
         let hdrop_bytes = build_hdrop_bytes(paths);
         unsafe {
             if alloc_and_set_clipboard(CF_HDROP as u32, &hdrop_bytes).is_ok() {
@@ -200,8 +399,8 @@ pub fn inject_files(paths: &[&Path], mode: &str) -> Result<Vec<&'static str>, St
         }
     }
 
-    // 3. CF_DIB format (Bitmap) if single image and supported mode
-    if (mode == "SMART_MULTI" || mode == "FORCE_IMAGE") && paths.len() == 1 {
+    // 3. CF_DIB format (Bitmap) for single image payloads
+    if include_dib && paths.len() == 1 {
         let file_path = paths[0];
         if let Some(ext) = file_path.extension().and_then(|s| s.to_str()) {
             let ext_lower = ext.to_lowercase();
@@ -225,6 +424,11 @@ pub fn inject_files(paths: &[&Path], mode: &str) -> Result<Vec<&'static str>, St
 }
 
 fn decode_image_to_dib(path: &Path) -> Result<Vec<u8>, String> {
+    let meta = std::fs::metadata(path).map_err(|e| e.to_string())?;
+    if meta.len() > MAX_DIB_FILE_BYTES {
+        return Err("Image file exceeds 32 MB DIB ceiling".to_string());
+    }
+
     let file = File::open(path).map_err(|e| e.to_string())?;
     let mut exif_orientation = 1u32;
 
@@ -239,6 +443,10 @@ fn decode_image_to_dib(path: &Path) -> Result<Vec<u8>, String> {
     }
 
     let mut img = image::open(path).map_err(|e| e.to_string())?;
+    let pixels = (img.width() as u64).saturating_mul(img.height() as u64);
+    if pixels > MAX_DIB_PIXELS {
+        return Err("Image dimensions exceed 36 MP DIB ceiling".to_string());
+    }
 
     // Apply EXIF rotation
     match exif_orientation {
@@ -260,4 +468,69 @@ fn decode_image_to_dib(path: &Path) -> Result<Vec<u8>, String> {
 
     // DIB is the BMP payload starting after 14-byte BITMAPFILEHEADER
     Ok(bmp_bytes[14..].to_vec())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_mode_maps_default_and_unknown_to_smart_multi() {
+        assert_eq!(normalize_clipboard_mode("DEFAULT"), "SMART_MULTI");
+        assert_eq!(normalize_clipboard_mode("default"), "SMART_MULTI");
+        assert_eq!(normalize_clipboard_mode(""), "SMART_MULTI");
+        assert_eq!(normalize_clipboard_mode("UNKNOWN"), "SMART_MULTI");
+        assert_eq!(normalize_clipboard_mode("force_image"), "FORCE_IMAGE");
+        assert_eq!(normalize_clipboard_mode("FORCE_PATH"), "FORCE_PATH");
+        assert_eq!(normalize_clipboard_mode("FORCE_FILE"), "FORCE_FILE");
+    }
+
+    #[test]
+    fn format_plan_supports_single_and_multi_file_batches() {
+        assert_eq!(compute_clipboard_format_plan("SMART_MULTI", 1), (true, true, true));
+        assert_eq!(compute_clipboard_format_plan("SMART_MULTI", 3), (true, true, false));
+        assert_eq!(compute_clipboard_format_plan("FORCE_IMAGE", 1), (false, true, true));
+        assert_eq!(compute_clipboard_format_plan("FORCE_IMAGE", 4), (false, true, false));
+        assert_eq!(compute_clipboard_format_plan("FORCE_FILE", 1), (false, true, false));
+        assert_eq!(compute_clipboard_format_plan("FORCE_FILE", 3), (false, true, false));
+        assert_eq!(compute_clipboard_format_plan("FORCE_PATH", 3), (true, false, false));
+        assert_eq!(compute_clipboard_format_plan("SMART_MULTI", 0), (false, false, false));
+    }
+
+    #[test]
+    fn winv_prepush_rules_preserve_images_without_duplicate_in_force_image() {
+        assert!(should_prepush_dib_to_winv("SMART_MULTI", 1, 1, true));
+        assert!(should_prepush_dib_to_winv("SMART_MULTI", 3, 2, true));
+        assert!(!should_prepush_dib_to_winv("FORCE_IMAGE", 1, 1, true));
+        assert!(should_prepush_dib_to_winv("FORCE_IMAGE", 3, 3, true));
+        assert!(!should_prepush_dib_to_winv("FORCE_PATH", 3, 3, true));
+        assert!(!should_prepush_dib_to_winv("FORCE_FILE", 3, 3, true));
+        assert!(!should_prepush_dib_to_winv("SMART_MULTI", 3, 3, false));
+        assert!(!should_prepush_dib_to_winv("SMART_MULTI", 2, 0, true));
+    }
+
+    #[test]
+    fn build_hdrop_encodes_multiple_utf16_paths_with_double_null_terminator() {
+        let p1 = Path::new(r"C:\Temp\img1.png");
+        let p2 = Path::new(r"C:\Temp\img2.jpg");
+        let bytes = build_hdrop_bytes(&[p1, p2]);
+
+        let header_size = std::mem::size_of::<DropFilesHeader>();
+        assert_eq!(header_size, 20);
+        let p_files = u32::from_le_bytes(bytes[0..4].try_into().unwrap());
+        let f_wide = i32::from_le_bytes(bytes[16..20].try_into().unwrap());
+        assert_eq!(p_files, 20);
+        assert_eq!(f_wide, 1);
+
+        let payload_u16: Vec<u16> = bytes[20..]
+            .chunks_exact(2)
+            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+            .collect();
+        let decoded = String::from_utf16(&payload_u16).unwrap();
+        assert!(decoded.ends_with("\0\0"));
+        let parts: Vec<&str> = decoded.trim_end_matches('\0').split('\0').collect();
+        assert_eq!(parts.len(), 2);
+        assert!(parts[0].ends_with("img1.png"));
+        assert!(parts[1].ends_with("img2.jpg"));
+    }
 }

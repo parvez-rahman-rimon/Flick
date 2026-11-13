@@ -134,10 +134,18 @@ class UploadService : Service() {
             // 3. Handle File URIs Payload
             if (uris.isNotEmpty()) {
                 val totalCount = uris.size
-                var allSuccess = true
+                val batchId = if (totalCount > 1) java.util.UUID.randomUUID().toString() else null
+                val notifManager = getSystemService(NotificationManager::class.java)
+                var successCount = 0
 
                 for ((index, uri) in uris.withIndex()) {
                     val metadata = queryUriMetadata(uri)
+                    if (totalCount > 1) {
+                        notifManager?.notify(
+                            NOTIFICATION_ID,
+                            buildForegroundNotification("Sending ${index + 1}/$totalCount: ${metadata.name}")
+                        )
+                    }
                     val start = System.currentTimeMillis()
 
                     val uploadRes = FlickHttpClient.uploadStream(
@@ -148,6 +156,7 @@ class UploadService : Service() {
                         fileName = metadata.name,
                         mimeType = metadata.mimeType,
                         clipboardMode = modeOverride,
+                        batchId = batchId,
                         batchIndex = index,
                         batchTotal = totalCount,
                         contentLength = metadata.size
@@ -158,6 +167,7 @@ class UploadService : Service() {
 
                     val elapsed = System.currentTimeMillis() - start
                     if (uploadRes.isSuccess) {
+                        successCount++
                         val thumbPath = generateThumbnail(uri, metadata.mimeType)
                         prefs.recordTransfer(
                             TransferRecord(
@@ -169,15 +179,16 @@ class UploadService : Service() {
                                 thumbnailPath = thumbPath
                             )
                         )
-                    } else {
-                        allSuccess = false
                     }
                 }
 
-                if (allSuccess) {
-                    val msg = if (totalCount == 1) "⚡ Copied to PC Clipboard" else "⚡ $totalCount files copied to PC"
+                if (successCount == totalCount) {
+                    val msg = if (totalCount == 1) "⚡ Copied to PC Clipboard" else "⚡ $totalCount files ready to paste on PC"
                     HapticHelper.triggerSuccess(applicationContext, msg)
                     kotlinx.coroutines.delay(160)
+                } else if (successCount > 0) {
+                    HapticHelper.triggerError(applicationContext, "Sent $successCount of $totalCount files")
+                    kotlinx.coroutines.delay(200)
                 } else {
                     HapticHelper.triggerError(applicationContext, "Transfer failed")
                     kotlinx.coroutines.delay(200)
@@ -205,6 +216,14 @@ class UploadService : Service() {
                 }
             }
         } catch (_: Exception) {}
+
+        if (size <= 0L) {
+            try {
+                contentResolver.openAssetFileDescriptor(uri, "r")?.use { afd ->
+                    if (afd.length > 0L) size = afd.length
+                }
+            } catch (_: Exception) {}
+        }
 
         return UriMetadata(name, mimeType, size)
     }

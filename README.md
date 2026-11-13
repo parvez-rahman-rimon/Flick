@@ -51,6 +51,7 @@ Both apps share a matching hardware-inspired dark interface (**`TX-1`** on Andro
 ## 🚀 Features
 
 - **Instant `Ctrl + V` Clipboard Injection** — Incoming files, images, and text are copied straight to your Windows clipboard the moment they finish transferring.
+- **Multi-File Batch Paste & `Win + V` Image Stacking** — Share multiple photos or files at once: press `Ctrl + V` to paste all files together (Explorer, Discord, WhatsApp, browsers), or press `Win + V` to paste individual image thumbnails one by one in single-image inputs.
 - **Matching Phone & PC Dashboards** — Tactile `TX-1` Android app (Jetpack Compose) and ultra-light `RX-1` Windows app (pure Rust, ~2 MB binary, ~3.4 MB RAM).
 - **1-Tap Android Share Sheet** — Share photos, videos, documents, or text directly from any app via **Share → Flick**.
 - **Smart Clipboard Modes** — Choose whether `Ctrl + V` pastes a file, an image bitmap, a local file path, or all of them together.
@@ -77,9 +78,11 @@ Both apps share a matching hardware-inspired dark interface (**`TX-1`** on Andro
 3. Wait for the quick haptic buzz (and PC chime), then press **`Ctrl + V`** on Windows.
 
 ### Method 2 — From the Flick App (`TX-1`)
-- **`F1 TRANSMIT FILES`** — Pick photos, videos, or documents from your phone to send to PC.
+- **`F1 TRANSMIT FILES`** — Pick one or multiple photos, videos, or documents from your phone to send in a batch.
 - **`F2 CLIPBOARD`** — Grab text or a URL from your phone clipboard (or type one) and push it straight to your PC clipboard.
 - **Mode Rocker (`01 MULTI` / `02 PATH` / `03 BITMAP`)** — Quickly change how the next transfer pastes on Windows.
+
+> **Multi-Image Tip:** When sending multiple images at once (or back-to-back), Flick automatically stacks each image into Windows Clipboard History (`Win + V`) while keeping the full multi-file batch ready for `Ctrl + V`. You can toggle this anytime from the system tray (**`Stack Images in Win+V History`**).
 
 ---
 
@@ -159,7 +162,7 @@ Built APK: `android-app\app\build\outputs\apk\debug\app-debug.apk`
 
 ## 🗺 Roadmap
 
-- [ ] **Multi-File Batch Paste:** Paste multiple shared images/files at once via `CF_HDROP` in the Rust receiver
+- [x] **Multi-File Batch Paste & `Win + V` Image Stacking:** Batch multiple shared images/files via `CF_HDROP` (`Ctrl + V`) and stack individual `CF_DIB` thumbnails in Windows `Win + V` history
 - [ ] **Two-Way Sync (`PC → Phone`):** Send text and files from Windows back to Android
 - [ ] **Android Direct Share:** Pin paired PCs to the top row of the Android Share Sheet
 - [ ] **Cross-Subnet Discovery:** mDNS & Tailscale support alongside local UDP discovery

@@ -307,6 +307,7 @@ object FlickHttpClient {
         fileName: String,
         mimeType: String,
         clipboardMode: String = "DEFAULT",
+        batchId: String? = null,
         batchIndex: Int = 0,
         batchTotal: Int = 1,
         contentLength: Long = -1L,
@@ -342,6 +343,10 @@ object FlickHttpClient {
             .addHeader("X-Batch-Index", batchIndex.toString())
             .addHeader("X-Batch-Total", batchTotal.toString())
             .post(body)
+
+        if (!batchId.isNullOrBlank()) {
+            reqBuilder.addHeader("X-Batch-Id", batchId)
+        }
 
         if (authToken.isNotEmpty()) {
             reqBuilder.addHeader("X-Flick-Token", authToken)

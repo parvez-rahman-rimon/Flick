@@ -14,8 +14,8 @@
 Flick is a zero-latency, local-network PC-to-Android companion suite designed to bypass cloud latency and telemetry. It provides instant bi-directional file streaming, clipboard beaming, and automated Windows clipboard injection directly into the OS workflow (supporting `CF_HDROP` Explorer file drops, `CF_UNICODETEXT`, and `CF_DIB` image bitmaps).
 
 ### System Topology
-- **Android Client (`android-app`):** Kotlin + Jetpack Compose edge-to-edge UI, OkHttp HTTP/1.1 chunked streaming, UDP broadcast discovery listener, and hardware-haptic feedback.
-- **Windows Receiver (`windows-receiver-rust`):** High-performance, pure Rust native PE64 daemon (~2.01 MB static binary, ~3.4 MB private working set RAM). Zero Python runtime dependency. Implements pure-Rust TLS 1.3 engine with `rustls` (ring), UDP presence beacon (`FLICK_DISCOVERY_V2`), atomic Win32 multi-format clipboard injection (`CF_HDROP`, `CF_UNICODETEXT`, EXIF-aware `CF_DIB`), native tray icon with silent toasts (`NIIF_NOSOUND`), and ephemeral Teenage Engineering GDI dashboard (540x680) with zero-RAM-when-closed working set trimming. Drop-in binary at `D:\Sandbox\EkSend\Flick.exe`.
+- **Android Client (`android-app`):** Kotlin + Jetpack Compose edge-to-edge UI, OkHttp HTTP/1.1 chunked streaming (with `X-Batch-Id` multi-file batching), UDP broadcast discovery listener, and hardware-haptic feedback.
+- **Windows Receiver (`windows-receiver-rust`):** High-performance, pure Rust native PE64 daemon (~2.01 MB static binary, ~3.4 MB private working set RAM). Zero Python runtime dependency. Implements pure-Rust TLS 1.3 engine with `rustls` (ring), UDP presence beacon (`FLICK_DISCOVERY_V2`), serialized Win32 multi-format clipboard worker (`CF_HDROP`, `CF_UNICODETEXT`, EXIF-aware `CF_DIB`, plus `Win + V` `CF_DIB` history stacking at `700ms` intervals with `CanIncludeInClipboardHistory = 0` on the final batch snapshot), native tray icon with silent toasts (`NIIF_NOSOUND`), and ephemeral Teenage Engineering GDI dashboard (540x680) with zero-RAM-when-closed working set trimming. Drop-in binary at `D:\Sandbox\EkSend\Flick.exe`.
 
 ---
 

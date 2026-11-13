@@ -1,4 +1,7 @@
-use crate::config::{get_config, get_lan_ip, is_autostart_enabled, set_autostart_enabled, set_clipboard_mode};
+use crate::config::{
+    get_config, get_lan_ip, is_autostart_enabled, set_autostart_enabled, set_clipboard_mode,
+    set_winv_history_stack,
+};
 use crate::gui;
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
@@ -36,6 +39,7 @@ const ID_TRAY_MODE_FILE: usize = 1013;
 const ID_TRAY_OPEN_DOWNLOADS: usize = 1020;
 const ID_TRAY_CHANGE_DOWNLOADS: usize = 1021;
 const ID_TRAY_TOGGLE_AUTOSTART: usize = 1022;
+const ID_TRAY_TOGGLE_WINV_STACK: usize = 1023;
 const ID_TRAY_QUIT: usize = 1030;
 
 static TRAY_HWND: AtomicPtr<core::ffi::c_void> = AtomicPtr::new(std::ptr::null_mut());
@@ -247,6 +251,10 @@ unsafe extern "system" fn tray_wnd_proc(
                         windows_sys::Win32::Graphics::Gdi::InvalidateRect(dash, std::ptr::null(), 0);
                     }
                 }
+                ID_TRAY_TOGGLE_WINV_STACK => {
+                    let cfg = get_config();
+                    set_winv_history_stack(!cfg.winv_history_stack);
+                }
                 ID_TRAY_QUIT => {
                     gui::close_dashboard_if_open();
                     PostQuitMessage(0);
@@ -309,6 +317,13 @@ unsafe fn show_tray_menu(hwnd: HWND) {
         .chain(Some(0))
         .collect();
     AppendMenuW(menu, MF_POPUP, mode_menu as usize, clip_str.as_ptr());
+
+    let winv_flags = MF_STRING | if cfg.winv_history_stack { MF_CHECKED } else { MF_UNCHECKED };
+    let winv_str: Vec<u16> = OsStr::new("Stack Images in Win+V History")
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+    AppendMenuW(menu, winv_flags, ID_TRAY_TOGGLE_WINV_STACK, winv_str.as_ptr());
 
     let open_dl_str: Vec<u16> = OsStr::new("Open Saved Files Folder")
         .encode_wide()

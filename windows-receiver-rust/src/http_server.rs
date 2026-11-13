@@ -752,6 +752,22 @@ fn handle_legacy_pair<S: Read + Write>(
     }
 }
 
+/// Resolves the effective clipboard mode for an upload, falling back to `config_mode`
+/// whenever the `X-Clipboard-Mode` header is absent, blank, or `"DEFAULT"`.
+fn resolve_upload_clipboard_mode(header_val: Option<&String>, config_mode: &str) -> String {
+    match header_val {
+        Some(raw) => {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("DEFAULT") {
+                clipboard::normalize_clipboard_mode(config_mode).to_string()
+            } else {
+                clipboard::normalize_clipboard_mode(trimmed).to_string()
+            }
+        }
+        None => clipboard::normalize_clipboard_mode(config_mode).to_string(),
+    }
+}
+
 fn handle_upload<S: Read + Write>(
     stream: &mut S,
     headers: &HashMap<String, String>,
@@ -859,47 +875,79 @@ fn handle_upload<S: Read + Write>(
 
     let elapsed_ms = start_time.elapsed().as_millis();
 
-    // Mode override
-    let mode = headers
-        .get("x-clipboard-mode")
-        .cloned()
-        .unwrap_or_else(|| cfg.clipboard_mode.clone());
+    // Mode override (resolve "DEFAULT" / empty header to configured receiver mode)
+    let mode = resolve_upload_clipboard_mode(headers.get("x-clipboard-mode"), &cfg.clipboard_mode);
 
     let mut applied_formats: Vec<&str> = Vec::new();
 
-    if batch_total > 1 && batch_id.is_some() {
-        let b_id = batch_id.unwrap();
-        let _guard = BATCH_LOCK.lock().unwrap();
-        let mut batches = get_batches().lock().unwrap();
+    if batch_total > 1 {
+        let batch_key = batch_id.unwrap_or_else(|| format!("ip:{}", peer_ip));
+        let completed_batch: Option<(Vec<PathBuf>, String)> = {
+            let _guard = BATCH_LOCK.lock().unwrap();
+            let mut batches = get_batches().lock().unwrap();
 
-        let entry = batches.entry(b_id.clone()).or_insert_with(|| BatchEntry {
-            total: batch_total,
-            paths: Vec::with_capacity(batch_total),
-            last_update: Instant::now(),
-            mode: mode.clone(),
-        });
+            // Evict abandoned batches older than 2 minutes
+            batches.retain(|_, v| v.last_update.elapsed() <= Duration::from_secs(120));
 
-        entry.paths.push(final_path.clone());
-        entry.last_update = Instant::now();
+            let entry = batches.entry(batch_key.clone()).or_insert_with(|| BatchEntry {
+                total: batch_total,
+                paths: Vec::with_capacity(batch_total),
+                last_update: Instant::now(),
+                mode: mode.clone(),
+            });
 
-        if entry.paths.len() >= entry.total || batch_index + 1 >= batch_total {
-            let total_files = entry.paths.len();
-            let path_refs: Vec<&Path> = entry.paths.iter().map(|p| p.as_path()).collect();
-            if let Ok(fmts) = clipboard::inject_files(&path_refs, &entry.mode) {
-                applied_formats = fmts;
+            entry.paths.push(final_path.clone());
+            entry.last_update = Instant::now();
+
+            if entry.paths.len() >= entry.total || batch_index + 1 >= batch_total {
+                batches.remove(&batch_key).map(|e| (e.paths, e.mode))
+            } else {
+                None
             }
-            batches.remove(&b_id);
+        };
+
+        if let Some((batch_paths, batch_mode)) = completed_batch {
+            let total_files = batch_paths.len();
+            let has_quarantined = batch_paths
+                .iter()
+                .any(|p| p.to_string_lossy().ends_with(".blocked"));
+            let effective_mode = if has_quarantined {
+                "FORCE_PATH"
+            } else {
+                batch_mode.as_str()
+            };
+            applied_formats = clipboard::planned_clipboard_formats(&batch_paths, effective_mode);
+            clipboard::enqueue_files_delivery(
+                batch_paths,
+                effective_mode.to_string(),
+                cfg.winv_history_stack && !has_quarantined,
+            );
             play_arrival_chime();
-            crate::tray::show_tray_notification("Flick Received", &format!("{} files ready to paste", total_files));
+            if has_quarantined {
+                crate::tray::show_tray_notification(
+                    "File Quarantined",
+                    "Batch contained dangerous file(s) saved as .blocked",
+                );
+            } else {
+                crate::tray::show_tray_notification(
+                    "Flick Received",
+                    &format!("{} files ready to paste", total_files),
+                );
+            }
         }
     } else {
         // Single file transfer
-        let path_refs = [final_path.as_path()];
-        if let Ok(fmts) = clipboard::inject_files(&path_refs, &mode) {
-            applied_formats = fmts;
-        }
+        let is_quarantined = safe_name.ends_with(".blocked");
+        let effective_mode = if is_quarantined { "FORCE_PATH" } else { mode.as_str() };
+        let single_paths = vec![final_path.clone()];
+        applied_formats = clipboard::planned_clipboard_formats(&single_paths, effective_mode);
+        clipboard::enqueue_files_delivery(
+            single_paths,
+            effective_mode.to_string(),
+            cfg.winv_history_stack && !is_quarantined,
+        );
         play_arrival_chime();
-        if safe_name.ends_with(".blocked") {
+        if is_quarantined {
             crate::tray::show_tray_notification("File Quarantined", "Saved with .blocked extension for security");
         } else {
             crate::tray::show_tray_notification("Flick Received", &format!("'{}' ready to paste", safe_name));
@@ -948,7 +996,7 @@ fn handle_clipboard<S: Read + Write>(
         }
     };
 
-    let _ = clipboard::inject_text(text);
+    clipboard::enqueue_text_delivery(text.to_string());
     play_arrival_chime();
     crate::tray::show_tray_notification("Flick Clipboard", &format!("Text copied to clipboard ({} chars)", text.chars().count()));
 
@@ -1017,5 +1065,31 @@ fn send_json_response<S: Write>(
 ) {
     if let Ok(bytes) = serde_json::to_vec(data) {
         send_response(stream, status_code, reason, "application/json", &bytes);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_upload_mode_uses_config_when_header_missing_or_default() {
+        assert_eq!(resolve_upload_clipboard_mode(None, "FORCE_IMAGE"), "FORCE_IMAGE");
+        assert_eq!(
+            resolve_upload_clipboard_mode(Some(&"DEFAULT".to_string()), "FORCE_IMAGE"),
+            "FORCE_IMAGE"
+        );
+        assert_eq!(
+            resolve_upload_clipboard_mode(Some(&"  ".to_string()), "FORCE_PATH"),
+            "FORCE_PATH"
+        );
+        assert_eq!(
+            resolve_upload_clipboard_mode(Some(&"FORCE_FILE".to_string()), "SMART_MULTI"),
+            "FORCE_FILE"
+        );
+        assert_eq!(
+            resolve_upload_clipboard_mode(Some(&"DEFAULT".to_string()), ""),
+            "SMART_MULTI"
+        );
     }
 }
