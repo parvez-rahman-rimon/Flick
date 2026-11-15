@@ -336,7 +336,7 @@ fn handle_connection(
     let server_conn = match rustls::ServerConnection::new(server_config) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("[HTTPS] Failed to create ServerConnection: {:?}", e);
+            log_http(&format!("[HTTPS] Failed to create ServerConnection from {}: {:?}", peer_ip, e));
             return;
         }
     };
@@ -361,15 +361,15 @@ fn handle_connection(
                 }
             }
             Ok(0) => {
-                eprintln!("[HTTPS] EOF reached before end of headers (read {} bytes)", header_buf.len());
+                log_http(&format!("[HTTPS] EOF reached before end of headers from {} (read {} bytes)", peer_ip, header_buf.len()));
                 break;
             }
             Ok(n) => {
-                eprintln!("[HTTPS] Unexpected read count {}", n);
+                log_http(&format!("[HTTPS] Unexpected read count {} from {}", n, peer_ip));
                 break;
             }
             Err(e) => {
-                eprintln!("[HTTPS] TLS read error: {:?}", e);
+                log_http(&format!("[HTTPS] TLS read error from {}: {:?}", peer_ip, e));
                 break;
             }
         }

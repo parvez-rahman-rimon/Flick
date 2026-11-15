@@ -84,6 +84,9 @@ class UploadService : Service() {
             return
         }
 
+        // Proactively ensure client keypair exists in Keystore for mTLS
+        com.eksend.flick.crypto.KeystoreManager.ensureClientKeypair(prefs.clientId)
+
         val textPayload = intent.getStringExtra(EXTRA_TEXT)
         val uris: List<Uri> = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             intent.getParcelableArrayListExtra(EXTRA_URIS, Uri::class.java) ?: emptyList()
@@ -94,9 +97,9 @@ class UploadService : Service() {
         val modeOverride = intent.getStringExtra(EXTRA_CLIPBOARD_MODE) ?: prefs.clipboardModeOverride
 
         serviceScope.launch {
-            // 1. Resolve Target IP (< 150ms cached ping -> UDP fallback)
-            val targetIp = PcAutoRouter.resolveTargetIp(applicationContext, pc)
-            if (targetIp == null) {
+            // 1. Resolve Target IP with automatic ping & fallback
+            val targetIp = PcAutoRouter.resolveTargetIp(applicationContext, pc) ?: pc.lastKnownIp
+            if (targetIp.isBlank()) {
                 HapticHelper.triggerError(applicationContext, "${pc.pcName} is offline or unreachable on Wi-Fi")
                 stopSelf()
                 return@launch

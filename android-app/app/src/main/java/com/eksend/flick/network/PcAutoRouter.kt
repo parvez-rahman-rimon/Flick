@@ -14,20 +14,39 @@ import java.net.InetSocketAddress
 object PcAutoRouter {
 
     suspend fun resolveTargetIp(context: Context, pc: PairedPc): String? = withContext(Dispatchers.IO) {
-        // Step 1: Fast Path (< 150ms cached IP mTLS ping)
-        val fastPingResult = FlickHttpClient.ping(
-            ip = pc.lastKnownIp,
-            port = pc.port,
-            authToken = pc.authToken,
-            pcSpkiPin = pc.pcSpkiPin,
-            connectTimeoutMs = 150
-        )
-        if (fastPingResult.isSuccess) {
-            return@withContext pc.lastKnownIp
+        val prefs = FlickPreferences(context)
+
+        // Step 1: Fast Path (1200ms cached IP mTLS ping)
+        if (pc.lastKnownIp.isNotBlank()) {
+            val fastPingResult = FlickHttpClient.ping(
+                ip = pc.lastKnownIp,
+                port = pc.port,
+                authToken = pc.authToken,
+                pcSpkiPin = pc.pcSpkiPin,
+                connectTimeoutMs = 1200
+            )
+            if (fastPingResult.isSuccess) {
+                return@withContext pc.lastKnownIp
+            }
         }
 
-        // Step 2: Authenticated UDP Discovery Beacon Fallback (<= 2200ms)
-        val prefs = FlickPreferences(context)
+        // Step 1.5: Check UdpDiscoveryListener in-memory cache
+        val liveDiscoveredIp = UdpDiscoveryListener.getLatestPcIp(pc.pcId)
+        if (!liveDiscoveredIp.isNullOrBlank() && liveDiscoveredIp != pc.lastKnownIp) {
+            val livePingResult = FlickHttpClient.ping(
+                ip = liveDiscoveredIp,
+                port = pc.port,
+                authToken = pc.authToken,
+                pcSpkiPin = pc.pcSpkiPin,
+                connectTimeoutMs = 1200
+            )
+            if (livePingResult.isSuccess) {
+                prefs.updateLastKnownIp(pc.pcId, liveDiscoveredIp)
+                return@withContext liveDiscoveredIp
+            }
+        }
+
+        // Step 2: Authenticated UDP Discovery Beacon Fallback (<= 2500ms)
         if (prefs.isAutoUpdateIpEnabled) {
             val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
             val multicastLock = try {
@@ -119,7 +138,11 @@ object PcAutoRouter {
             }
         }
 
-        // Offline or unreachable
+        // Fallback: If discovery timed out, still return lastKnownIp so OkHttp can attempt connection
+        if (pc.lastKnownIp.isNotBlank()) {
+            return@withContext pc.lastKnownIp
+        }
+
         return@withContext null
     }
 }

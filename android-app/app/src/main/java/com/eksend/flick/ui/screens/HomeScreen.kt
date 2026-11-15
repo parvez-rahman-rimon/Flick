@@ -93,6 +93,7 @@ import com.eksend.flick.service.UploadService
 import com.eksend.flick.ui.components.BentoActionTile
 import com.eksend.flick.ui.components.DiscoveredPairCard
 import com.eksend.flick.ui.components.ScallopedDeviceBadge
+import com.eksend.flick.ui.components.SpatialFlickDeck
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -117,6 +118,7 @@ fun HomeScreen(
     var dismissedPcIds by remember { mutableStateOf(setOf<String>()) }
     var showSendTextDialog by remember { mutableStateOf(false) }
     var textInput by remember { mutableStateOf("") }
+    var pendingFlickUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
 
     val discoveredPcsMap by udpListener.discoveredPcs.collectAsState()
 
@@ -125,16 +127,7 @@ fun HomeScreen(
         contract = ActivityResultContracts.GetMultipleContents()
     ) { uris: List<Uri> ->
         if (uris.isNotEmpty()) {
-            val serviceIntent = Intent(context, UploadService::class.java).apply {
-                action = UploadService.ACTION_UPLOAD
-                putParcelableArrayListExtra(UploadService.EXTRA_URIS, ArrayList(uris))
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            ContextCompat.startForegroundService(context, serviceIntent)
-            scope.launch {
-                delay(1200)
-                recentTransfers = preferences.getRecentTransfers()
-            }
+            pendingFlickUris = uris
         }
     }
 
@@ -781,6 +774,31 @@ fun HomeScreen(
                 TextButton(onClick = { showSendTextDialog = false }) {
                     Text("CANCEL", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+            }
+        )
+    }
+
+    // Declan Tan "Give it a little flick" Interactive Spatial Deck Overlay
+    if (pendingFlickUris.isNotEmpty()) {
+        SpatialFlickDeck(
+            uris = pendingFlickUris,
+            pcName = activePc?.pcName ?: "Windows PC",
+            isOnline = onlineState.isOnline,
+            onFlick = { selected, _ ->
+                val serviceIntent = Intent(context, UploadService::class.java).apply {
+                    action = UploadService.ACTION_UPLOAD
+                    putParcelableArrayListExtra(UploadService.EXTRA_URIS, ArrayList(selected))
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                ContextCompat.startForegroundService(context, serviceIntent)
+                pendingFlickUris = emptyList()
+                scope.launch {
+                    delay(1200)
+                    recentTransfers = preferences.getRecentTransfers()
+                }
+            },
+            onDismiss = {
+                pendingFlickUris = emptyList()
             }
         )
     }

@@ -16,6 +16,15 @@ import java.net.InetSocketAddress
 
 class UdpDiscoveryListener {
 
+    companion object {
+        private val _globalDiscoveredPcs = MutableStateFlow<Map<String, DiscoveredPc>>(emptyMap())
+        val globalDiscoveredPcs: StateFlow<Map<String, DiscoveredPc>> = _globalDiscoveredPcs.asStateFlow()
+
+        fun getLatestPcIp(pcId: String): String? {
+            return _globalDiscoveredPcs.value[pcId]?.ip
+        }
+    }
+
     private val _discoveredPcs = MutableStateFlow<Map<String, DiscoveredPc>>(emptyMap())
     val discoveredPcs: StateFlow<Map<String, DiscoveredPc>> = _discoveredPcs.asStateFlow()
 
@@ -83,6 +92,7 @@ class UdpDiscoveryListener {
                             }
                             updated[pcId] = discovered
                             _discoveredPcs.value = updated
+                            _globalDiscoveredPcs.value = updated
                         }
                     } catch (_: java.net.SocketTimeoutException) {
                         // Regular timeout to allow checking isActive

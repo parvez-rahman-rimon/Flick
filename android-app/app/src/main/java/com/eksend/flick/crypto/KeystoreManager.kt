@@ -116,14 +116,24 @@ object KeystoreManager {
 
     fun getClientCertificate(): X509Certificate {
         val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
-        return (keyStore.getCertificate(KEY_ALIAS) as? X509Certificate)
-            ?: throw IllegalStateException("Client certificate not found in Keystore")
+        var cert = keyStore.getCertificate(KEY_ALIAS) as? X509Certificate
+        if (cert == null) {
+            ensureClientKeypair("flick-client")
+            val refreshed = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+            cert = refreshed.getCertificate(KEY_ALIAS) as? X509Certificate
+        }
+        return cert ?: throw IllegalStateException("Client certificate not found in Keystore")
     }
 
     fun getClientPrivateKey(): PrivateKey {
         val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
-        return (keyStore.getKey(KEY_ALIAS, null) as? PrivateKey)
-            ?: throw IllegalStateException("Client private key not found in Keystore")
+        var key = keyStore.getKey(KEY_ALIAS, null) as? PrivateKey
+        if (key == null) {
+            ensureClientKeypair("flick-client")
+            val refreshed = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+            key = refreshed.getKey(KEY_ALIAS, null) as? PrivateKey
+        }
+        return key ?: throw IllegalStateException("Client private key not found in Keystore")
     }
 
     fun getClientSpkiPin(): String {
@@ -207,7 +217,11 @@ object KeystoreManager {
         )
         val trustManager = PinningTrustManager(pcSpkiPin)
 
-        val sslContext = SSLContext.getInstance("TLSv1.3")
+        val sslContext = try {
+            SSLContext.getInstance("TLSv1.3")
+        } catch (_: Exception) {
+            SSLContext.getInstance("TLS")
+        }
         sslContext.init(arrayOf(keyManager), arrayOf(trustManager), SecureRandom())
 
         return Pair(sslContext.socketFactory, trustManager)

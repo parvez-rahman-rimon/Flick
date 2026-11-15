@@ -35,14 +35,13 @@
             </intent-filter>
         </activity>
 
-        <!-- 2. Zero-UI 1-Tap Share Target (<50ms close) -->
+        <!-- 2. Spatial Flick Share Activity (Tony Stark / Declan Tan Give it a little flick) -->
         <activity
             android:name=".TeleportShareActivity"
             android:exported="true"
             android:label="@string/share_target_label"
-            android:theme="@style/Theme.Flick.TranslucentNoDisplay"
+            android:theme="@style/Theme.Flick.SpatialCanvas"
             android:excludeFromRecents="true"
-            android:noHistory="true"
             android:taskAffinity="">
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
