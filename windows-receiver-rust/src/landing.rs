@@ -1758,7 +1758,6 @@ fn fill_glass_rounded_rect(
     for y in y0..y1 {
         if y < 0 || y >= canvas_h { continue; }
         let row = (y as usize) * (canvas_w as usize) * 4;
-        let is_top_edge = (y - y0) <= 2;
         for x in x0..x1 {
             if x < 0 || x >= canvas_w { continue; }
 
@@ -1800,17 +1799,10 @@ fn fill_glass_rounded_rect(
             let p_idx = row + (x as usize) * 4;
 
             if is_border {
-                if is_top_edge {
-                    buffer[p_idx + 0] = 255;
-                    buffer[p_idx + 1] = 255;
-                    buffer[p_idx + 2] = 255;
-                    buffer[p_idx + 3] = border_a.max(120);
-                } else {
-                    buffer[p_idx + 0] = border_b;
-                    buffer[p_idx + 1] = border_g;
-                    buffer[p_idx + 2] = border_r;
-                    buffer[p_idx + 3] = border_a;
-                }
+                buffer[p_idx + 0] = border_b;
+                buffer[p_idx + 1] = border_g;
+                buffer[p_idx + 2] = border_r;
+                buffer[p_idx + 3] = border_a;
             } else {
                 buffer[p_idx + 0] = bg_b;
                 buffer[p_idx + 1] = bg_g;
@@ -1831,8 +1823,8 @@ fn render_ambient_glass_shadow(
     y1: i32,
     r: i32,
 ) {
-    let shadow_pad = 26;
-    let offset_y = 8;
+    let shadow_pad = 28;
+    let offset_y = 10;
     let r_f = r as f32;
 
     let min_x = (x0 - shadow_pad).max(0);
@@ -1872,7 +1864,7 @@ fn render_ambient_glass_shadow(
 
             if dist > 0.0 && dist <= shadow_pad as f32 {
                 let norm = 1.0 - (dist / shadow_pad as f32);
-                let shadow_a = (norm * norm * 75.0) as u8;
+                let shadow_a = (norm * norm * 48.0) as u8; // Soft natural paper elevation
                 let p_idx = row + (x as usize) * 4;
                 if shadow_a > buffer[p_idx + 3] {
                     buffer[p_idx + 0] = 0;
@@ -1902,17 +1894,17 @@ fn render_floating_glass_card(
     let y0 = (canvas_h - card_h) / 2;
     let x1 = x0 + card_w;
     let y1 = y0 + card_h;
-    let r = 20;
+    let r = 18;
 
-    // 1. Ambient drop shadow
+    // 1. Soft natural paper ambient elevation shadow
     render_ambient_glass_shadow(buffer, canvas_w, canvas_h, x0, y0, x1, y1, r);
 
-    // 2. Liquid Glass / Frosted Obsidian Mica card body
+    // 2. 100% Solid Tactile Paper Studio Card Body (#FAF9F8 Warm Cotton Art Paper, #E0E2E4 subtle paper border)
     fill_glass_rounded_rect(
         buffer, canvas_w, canvas_h,
         x0, y0, x1, y1, r,
-        32, 24, 18, 232,
-        140, 140, 140, 70,
+        248, 249, 250, 255, // 100% Opaque Warm Paper White
+        228, 226, 224, 255, // Crisp 1.5px Paper Border
     );
 
     // Register card in projected_cards for click / drag interaction!
@@ -1930,7 +1922,7 @@ fn render_floating_glass_card(
     unsafe {
         match item {
             LandingItem::Url { url } => {
-                // Pill Badge: "🔗 LINK"
+                // Tactile Paper Badge: "🔗 LINK"
                 let pill_x0 = x0 + 24;
                 let pill_y0 = y0 + 20;
                 let pill_x1 = x0 + 94;
@@ -1938,14 +1930,14 @@ fn render_floating_glass_card(
                 fill_glass_rounded_rect(
                     buffer, canvas_w, canvas_h,
                     pill_x0, pill_y0, pill_x1, pill_y1, 10,
-                    144, 80, 14, 180, // Cyan-tinted bg
-                    248, 189, 56, 180, // Cyan border
+                    246, 242, 238, 255, // Soft cool slate paper (#EEF2F6)
+                    225, 213, 203, 255, // #CBD5E1
                 );
 
-                let badge_font = create_gdi_font(12, true, false);
+                let badge_font = create_gdi_font(11, true, false);
                 draw_glass_text(
                     hdc, buffer, canvas_w, canvas_h,
-                    "🔗 LINK", badge_font, 0x0038BDF8,
+                    "🔗 LINK", badge_font, 0x000284C7,
                     RECT { left: pill_x0, top: pill_y0, right: pill_x1, bottom: pill_y1 },
                     DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
                 );
@@ -1954,43 +1946,43 @@ fn render_floating_glass_card(
                 let hint_font = create_gdi_font(11, false, false);
                 draw_glass_text(
                     hdc, buffer, canvas_w, canvas_h,
-                    "CLICK TO OPEN ↗", hint_font, 0x0094A3B8,
+                    "CLICK TO OPEN ↗", hint_font, 0x0064748B,
                     RECT { left: x1 - 180, top: y0 + 22, right: x1 - 24, bottom: y0 + 42 },
                     DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
                 );
 
-                // Extracted Domain Title (e.g. "github.com")
+                // Extracted Domain Title (Deep printed charcoal ink #0F172A)
                 let domain = extract_domain(url);
                 let title_font = create_gdi_font(22, true, false);
                 draw_glass_text(
                     hdc, buffer, canvas_w, canvas_h,
-                    &domain, title_font, 0x00FFFFFF,
+                    &domain, title_font, 0x000F172A,
                     RECT { left: x0 + 24, top: y0 + 52, right: x1 - 24, bottom: y0 + 86 },
                     DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX,
                 );
 
-                // Full URL Subtitle
+                // Full URL Subtitle (Vibrant clean link blue #0284C7)
                 let url_font = create_gdi_font(13, false, false);
                 draw_glass_text(
                     hdc, buffer, canvas_w, canvas_h,
-                    url, url_font, 0x0038BDF8,
+                    url, url_font, 0x000284C7,
                     RECT { left: x0 + 24, top: y0 + 88, right: x1 - 24, bottom: y0 + 114 },
                     DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX,
                 );
 
-                // Action CTA Button: "Open in Browser ↗"
+                // Action CTA Button: "Open in Browser ↗" (Flick Electric Orange #F97316)
                 let btn_x0 = x0 + 24;
                 let btn_y0 = y0 + 134;
-                let btn_x1 = x0 + 185;
+                let btn_x1 = x0 + 195;
                 let btn_y1 = y0 + 172;
                 fill_glass_rounded_rect(
                     buffer, canvas_w, canvas_h,
                     btn_x0, btn_y0, btn_x1, btn_y1, 12,
-                    22, 115, 249, 255, // Electric Orange #F97316
-                    255, 180, 100, 255,
+                    22, 115, 249, 255, // Vibrant Orange #F97316
+                    12, 88, 234, 255,  // Deep Orange Border #EA580C
                 );
 
-                let btn_font = create_gdi_font(13, true, false);
+                let btn_font = create_gdi_font(12, true, false);
                 draw_glass_text(
                     hdc, buffer, canvas_w, canvas_h,
                     "Open in Browser ↗", btn_font, 0x00FFFFFF,
@@ -2001,7 +1993,7 @@ fn render_floating_glass_card(
                 // Subtle footer hint: "Esc to close"
                 draw_glass_text(
                     hdc, buffer, canvas_w, canvas_h,
-                    "Esc to close", hint_font, 0x0064748B,
+                    "Esc to close", hint_font, 0x0094A3B8,
                     RECT { left: x1 - 140, top: y0 + 144, right: x1 - 24, bottom: y0 + 166 },
                     DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
                 );
@@ -2013,22 +2005,22 @@ fn render_floating_glass_card(
                 DeleteObject(btn_font as _);
             }
             LandingItem::Text { preview, length } => {
-                // Pill Badge: "📋 CLIPBOARD"
+                // Tactile Paper Badge: "📋 CLIPBOARD"
                 let pill_x0 = x0 + 24;
                 let pill_y0 = y0 + 20;
-                let pill_x1 = x0 + 125;
+                let pill_x1 = x0 + 130;
                 let pill_y1 = y0 + 44;
                 fill_glass_rounded_rect(
                     buffer, canvas_w, canvas_h,
                     pill_x0, pill_y0, pill_x1, pill_y1, 10,
-                    80, 120, 16, 180, // Emerald tint
-                    153, 211, 52, 180,
+                    245, 253, 236, 255, // Mint Paper (#ECFDF5)
+                    208, 243, 167, 255, // Soft Emerald Border (#A7F3D0)
                 );
 
-                let badge_font = create_gdi_font(12, true, false);
+                let badge_font = create_gdi_font(11, true, false);
                 draw_glass_text(
                     hdc, buffer, canvas_w, canvas_h,
-                    "📋 CLIPBOARD", badge_font, 0x0034D399,
+                    "📋 CLIPBOARD", badge_font, 0x00059669,
                     RECT { left: pill_x0, top: pill_y0, right: pill_x1, bottom: pill_y1 },
                     DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
                 );
@@ -2038,16 +2030,16 @@ fn render_floating_glass_card(
                 let count_str = format!("{} CHARS • COPIED", length);
                 draw_glass_text(
                     hdc, buffer, canvas_w, canvas_h,
-                    &count_str, hint_font, 0x0094A3B8,
+                    &count_str, hint_font, 0x0064748B,
                     RECT { left: x1 - 200, top: y0 + 22, right: x1 - 24, bottom: y0 + 42 },
                     DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
                 );
 
-                // Body Text
+                // Body Text (Deep charcoal slate #1E293B, highly readable)
                 let body_font = create_gdi_font(14, false, false);
                 draw_glass_text(
                     hdc, buffer, canvas_w, canvas_h,
-                    preview, body_font, 0x00F8FAFC,
+                    preview, body_font, 0x001E293B,
                     RECT { left: x0 + 24, top: y0 + 56, right: x1 - 24, bottom: y0 + 145 },
                     DT_LEFT | DT_TOP | DT_WORDBREAK | DT_END_ELLIPSIS | DT_NOPREFIX,
                 );
@@ -2056,7 +2048,7 @@ fn render_floating_glass_card(
                 let status_font = create_gdi_font(12, true, false);
                 draw_glass_text(
                     hdc, buffer, canvas_w, canvas_h,
-                    "⚡ Copied to Windows Clipboard", status_font, 0x0034D399,
+                    "⚡ Copied to Windows Clipboard", status_font, 0x00059669,
                     RECT { left: x0 + 24, top: y0 + 165, right: x1 - 24, bottom: y0 + 195 },
                     DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
                 );
@@ -2067,7 +2059,7 @@ fn render_floating_glass_card(
                 DeleteObject(status_font as _);
             }
             LandingItem::Files { primary_name, count, total_bytes, .. } => {
-                // Pill Badge: "📁 FILE READY"
+                // Paper Badge: "📁 FILE READY"
                 let pill_x0 = x0 + 24;
                 let pill_y0 = y0 + 20;
                 let pill_x1 = x0 + 130;
@@ -2075,14 +2067,14 @@ fn render_floating_glass_card(
                 fill_glass_rounded_rect(
                     buffer, canvas_w, canvas_h,
                     pill_x0, pill_y0, pill_x1, pill_y1, 10,
-                    20, 100, 180, 180, // Amber tint
-                    50, 150, 240, 180,
+                    254, 243, 199, 255, // Amber Paper (#FEF3C7)
+                    253, 230, 138, 255, // #FDE68A
                 );
 
-                let badge_font = create_gdi_font(12, true, false);
+                let badge_font = create_gdi_font(11, true, false);
                 draw_glass_text(
                     hdc, buffer, canvas_w, canvas_h,
-                    "📁 FILE READY", badge_font, 0x00FBBF24,
+                    "📁 FILE READY", badge_font, 0x00D97706,
                     RECT { left: pill_x0, top: pill_y0, right: pill_x1, bottom: pill_y1 },
                     DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
                 );
@@ -2092,21 +2084,21 @@ fn render_floating_glass_card(
                 let size_str = format_size(*total_bytes);
                 draw_glass_text(
                     hdc, buffer, canvas_w, canvas_h,
-                    &size_str, hint_font, 0x0094A3B8,
+                    &size_str, hint_font, 0x0064748B,
                     RECT { left: x1 - 180, top: y0 + 22, right: x1 - 24, bottom: y0 + 42 },
                     DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
                 );
 
-                // File Name Title
+                // File Name Title (#0F172A)
                 let title_font = create_gdi_font(20, true, false);
                 draw_glass_text(
                     hdc, buffer, canvas_w, canvas_h,
-                    primary_name, title_font, 0x00FFFFFF,
+                    primary_name, title_font, 0x000F172A,
                     RECT { left: x0 + 24, top: y0 + 52, right: x1 - 24, bottom: y0 + 86 },
                     DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX,
                 );
 
-                // File Count Subtitle
+                // File Count Subtitle (#64748B)
                 let sub_font = create_gdi_font(13, false, false);
                 let count_str = if *count > 1 {
                     format!("{} files ready to paste or drag", count)
@@ -2115,7 +2107,7 @@ fn render_floating_glass_card(
                 };
                 draw_glass_text(
                     hdc, buffer, canvas_w, canvas_h,
-                    &count_str, sub_font, 0x0094A3B8,
+                    &count_str, sub_font, 0x0064748B,
                     RECT { left: x0 + 24, top: y0 + 88, right: x1 - 24, bottom: y0 + 114 },
                     DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
                 );
@@ -2123,19 +2115,19 @@ fn render_floating_glass_card(
                 // Action Button: "Show in Explorer ↗"
                 let btn_x0 = x0 + 24;
                 let btn_y0 = y0 + 134;
-                let btn_x1 = x0 + 185;
+                let btn_x1 = x0 + 195;
                 let btn_y1 = y0 + 172;
                 fill_glass_rounded_rect(
                     buffer, canvas_w, canvas_h,
                     btn_x0, btn_y0, btn_x1, btn_y1, 12,
-                    80, 50, 30, 220, // Slate Cyan
-                    120, 80, 50, 255,
+                    241, 245, 249, 255, // Slate Paper (#F1F5F9)
+                    203, 213, 225, 255, // Border #CBD5E1
                 );
 
-                let btn_font = create_gdi_font(13, true, false);
+                let btn_font = create_gdi_font(12, true, false);
                 draw_glass_text(
                     hdc, buffer, canvas_w, canvas_h,
-                    "Show in Explorer ↗", btn_font, 0x00FFFFFF,
+                    "Show in Explorer ↗", btn_font, 0x001E293B,
                     RECT { left: btn_x0, top: btn_y0, right: btn_x1, bottom: btn_y1 },
                     DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
                 );
