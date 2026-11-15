@@ -1443,8 +1443,8 @@ fn render_3d_spatial_scene(
             image_idx: cfg.image_idx,
         });
 
-        // Soft ambient drop shadow underneath card
-        rasterize_drop_shadow(buffer, canvas_w, canvas_h, &screen_corners, cfg.is_focused);
+        // Soft ambient drop shadow underneath card - DISABLED per user request (eliminating muddy bottom blur/shadow)
+        // rasterize_drop_shadow(buffer, canvas_w, canvas_h, &screen_corners, cfg.is_focused);
 
         // Rasterize card image with 3D homography & rounded corners
         let img = &images[cfg.image_idx];
@@ -1756,6 +1756,7 @@ fn rasterize_perspective_card(
 // Soft Drop Shadows
 // ----------------------------------------------------------------------------
 
+#[allow(dead_code)]
 fn rasterize_drop_shadow(
     buffer: &mut [u8],
     canvas_w: i32,
@@ -2296,6 +2297,7 @@ fn fill_rounded_box(
     }
 }
 
+#[allow(dead_code)]
 fn render_ambient_card_shadow(
     buffer: &mut [u8],
     canvas_w: i32,
@@ -2379,8 +2381,8 @@ fn render_floating_glass_card(
     let y1 = y0 + card_h;
     let r = 18;
 
-    // 1. Subtle, clean ambient drop shadow (no dirty bars)
-    render_ambient_card_shadow(buffer, canvas_w, canvas_h, x0, y0, x1, y1, r);
+    // 1. Subtle, clean ambient drop shadow - DISABLED per user request (eliminating muddy bottom blur/shadow)
+    // render_ambient_card_shadow(buffer, canvas_w, canvas_h, x0, y0, x1, y1, r);
 
     // 2. 100% Solid Pure Studio White Card (#FFFFFF) with crisp border (#E2E8F0)
     fill_rounded_box(
