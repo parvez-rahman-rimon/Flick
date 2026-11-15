@@ -25,9 +25,11 @@ use windows_sys::Win32::Foundation::{
     BOOL, DRAGDROP_S_CANCEL, DRAGDROP_S_DROP, HWND, LRESULT, POINT, RECT, SIZE, S_OK,
 };
 use windows_sys::Win32::Graphics::Gdi::{
-    CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, SelectObject,
-    AC_SRC_ALPHA, AC_SRC_OVER, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, BLENDFUNCTION,
-    DIB_RGB_COLORS, HBITMAP, HDC,
+    CreateCompatibleDC, CreateDIBSection, CreateFontW, DeleteDC, DeleteObject, DrawTextW,
+    SelectObject, SetBkMode, SetTextColor, AC_SRC_ALPHA, AC_SRC_OVER, BITMAPINFO,
+    BITMAPINFOHEADER, BI_RGB, BLENDFUNCTION, DIB_RGB_COLORS, DT_CENTER, DT_END_ELLIPSIS,
+    DT_LEFT, DT_NOPREFIX, DT_RIGHT, DT_SINGLELINE, DT_TOP, DT_VCENTER, DT_WORDBREAK, HBITMAP,
+    HDC, HFONT, TRANSPARENT,
 };
 use windows_sys::Win32::System::Com::{
     CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED, FORMATETC, STGMEDIUM,
@@ -41,17 +43,18 @@ use windows_sys::Win32::System::Ole::{
     DoDragDrop, CF_HDROP, DROPEFFECT_COPY, DROPEFFECT_MOVE,
 };
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    GetAsyncKeyState, ReleaseCapture, VK_CONTROL, VK_ESCAPE, VK_LEFT, VK_RIGHT,
+    GetAsyncKeyState, ReleaseCapture, VK_CONTROL, VK_ESCAPE, VK_LEFT, VK_RETURN, VK_RIGHT,
 };
+use windows_sys::Win32::UI::Shell::ShellExecuteW;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, GetSystemMetrics,
     GetWindowRect, KillTimer, LoadCursorW, PostMessageW, PostQuitMessage, RegisterClassExW,
     SendMessageW, SetTimer, SetWindowPos, ShowWindow, SystemParametersInfoW, TranslateMessage,
     UpdateLayeredWindow, CS_HREDRAW, CS_VREDRAW, HTCAPTION, IDC_ARROW, SM_CXDRAG, SM_CYDRAG,
-    SPI_GETWORKAREA, SWP_NOACTIVATE, SWP_SHOWWINDOW, SW_HIDE, SW_SHOWNOACTIVATE, ULW_ALPHA,
-    WM_CLOSE, WM_DESTROY, WM_ERASEBKGND, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP,
-    WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCLBUTTONDOWN, WM_PAINT, WM_TIMER, WM_USER, WNDCLASSEXW, WS_EX_LAYERED,
-    WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
+    SPI_GETWORKAREA, SWP_NOACTIVATE, SWP_SHOWWINDOW, SW_HIDE, SW_SHOWNOACTIVATE, SW_SHOWNORMAL,
+    ULW_ALPHA, WM_CLOSE, WM_DESTROY, WM_ERASEBKGND, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP,
+    WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCLBUTTONDOWN, WM_PAINT, WM_TIMER, WM_USER, WNDCLASSEXW,
+    WS_EX_LAYERED, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
 };
 
 // ----------------------------------------------------------------------------
@@ -279,9 +282,9 @@ fn dispatch_landing(item: LandingItem) {
                 (w, 700)
             }
         }
-        LandingItem::Files { .. } => (520, 360),
-        LandingItem::Url { .. } => (480, 260),
-        LandingItem::Text { .. } => (460, 240),
+        LandingItem::Files { .. } => (540, 280),
+        LandingItem::Url { .. } => (540, 280),
+        LandingItem::Text { .. } => (540, 300),
     };
 
     {
@@ -470,6 +473,7 @@ unsafe extern "system" fn landing_wnd_proc(
                         let total_bytes = (s.canvas_w * s.canvas_h * 4) as usize;
                         let dib_slice = unsafe { std::slice::from_raw_parts_mut(s.dib_bits, total_bytes) };
                         s.cards = render_3d_spatial_scene(
+                            s.mem_dc,
                             dib_slice,
                             s.canvas_w,
                             s.canvas_h,
@@ -555,22 +559,44 @@ unsafe extern "system" fn landing_wnd_proc(
                 if s.is_dragging_candidate {
                     s.is_dragging_candidate = false;
                     if let Some(clicked_idx) = s.clicked_card_idx.take() {
-                        if clicked_idx != s.focus_idx {
-                            s.focus_idx = clicked_idx;
-                            let total_bytes = (s.canvas_w * s.canvas_h * 4) as usize;
-                            let dib_slice = unsafe { std::slice::from_raw_parts_mut(s.dib_bits, total_bytes) };
-                            s.cards = render_3d_spatial_scene(
-                                dib_slice,
-                                s.canvas_w,
-                                s.canvas_h,
-                                &s.item,
-                                &s.images,
-                                s.focus_idx,
-                            );
-                            unsafe {
-                                commit_layered_frame(hwnd, &s);
+                        if !s.images.is_empty() {
+                            if clicked_idx != s.focus_idx {
+                                s.focus_idx = clicked_idx;
+                                let total_bytes = (s.canvas_w * s.canvas_h * 4) as usize;
+                                let dib_slice = unsafe { std::slice::from_raw_parts_mut(s.dib_bits, total_bytes) };
+                                s.cards = render_3d_spatial_scene(
+                                    s.mem_dc,
+                                    dib_slice,
+                                    s.canvas_w,
+                                    s.canvas_h,
+                                    &s.item,
+                                    &s.images,
+                                    s.focus_idx,
+                                );
+                                unsafe {
+                                    commit_layered_frame(hwnd, &s);
+                                }
+                                s.last_interaction = Instant::now();
                             }
-                            s.last_interaction = Instant::now();
+                        } else {
+                            // Non-image card clicked (URL, Text, or File)
+                            let item_clone = s.item.clone();
+                            drop(s);
+                            match item_clone {
+                                LandingItem::Url { url } => {
+                                    open_url_in_browser(&url);
+                                    trigger_dismiss();
+                                }
+                                LandingItem::Files { paths, .. } => {
+                                    if let Some(first_path) = paths.first() {
+                                        show_file_in_explorer(first_path);
+                                    }
+                                    trigger_dismiss();
+                                }
+                                LandingItem::Text { .. } => {
+                                    trigger_dismiss();
+                                }
+                            }
                         }
                     }
                 }
@@ -591,6 +617,7 @@ unsafe extern "system" fn landing_wnd_proc(
                     let total_bytes = (s.canvas_w * s.canvas_h * 4) as usize;
                     let dib_slice = unsafe { std::slice::from_raw_parts_mut(s.dib_bits, total_bytes) };
                     s.cards = render_3d_spatial_scene(
+                        s.mem_dc,
                         dib_slice,
                         s.canvas_w,
                         s.canvas_h,
@@ -609,6 +636,27 @@ unsafe extern "system" fn landing_wnd_proc(
         WM_KEYDOWN => {
             if wparam == VK_ESCAPE as usize {
                 trigger_dismiss();
+            } else if wparam == VK_RETURN as usize {
+                if let Some(state_arc) = get_active_state() {
+                    let s = state_arc.lock().unwrap();
+                    let item_clone = s.item.clone();
+                    drop(s);
+                    match item_clone {
+                        LandingItem::Url { url } => {
+                            open_url_in_browser(&url);
+                            trigger_dismiss();
+                        }
+                        LandingItem::Files { paths, .. } => {
+                            if let Some(first_path) = paths.first() {
+                                show_file_in_explorer(first_path);
+                            }
+                            trigger_dismiss();
+                        }
+                        _ => {
+                            trigger_dismiss();
+                        }
+                    }
+                }
             } else if wparam == VK_LEFT as usize {
                 if let Some(state_arc) = get_active_state() {
                     let mut s = state_arc.lock().unwrap();
@@ -617,6 +665,7 @@ unsafe extern "system" fn landing_wnd_proc(
                         let total_bytes = (s.canvas_w * s.canvas_h * 4) as usize;
                         let dib_slice = unsafe { std::slice::from_raw_parts_mut(s.dib_bits, total_bytes) };
                         s.cards = render_3d_spatial_scene(
+                            s.mem_dc,
                             dib_slice,
                             s.canvas_w,
                             s.canvas_h,
@@ -638,6 +687,7 @@ unsafe extern "system" fn landing_wnd_proc(
                         let total_bytes = (s.canvas_w * s.canvas_h * 4) as usize;
                         let dib_slice = unsafe { std::slice::from_raw_parts_mut(s.dib_bits, total_bytes) };
                         s.cards = render_3d_spatial_scene(
+                            s.mem_dc,
                             dib_slice,
                             s.canvas_w,
                             s.canvas_h,
@@ -735,6 +785,7 @@ unsafe fn handle_show_landing(hwnd: HWND) {
     // Render 3D Spatial Scene onto 32-bit ARGB surface once
     let initial_focus = if p.images.is_empty() { 0 } else { p.images.len() / 2 };
     let projected_cards = render_3d_spatial_scene(
+        mem_dc,
         dib_slice,
         canvas_w,
         canvas_h,
@@ -955,6 +1006,7 @@ struct CardConfig {
 }
 
 fn render_3d_spatial_scene(
+    hdc: HDC,
     buffer: &mut [u8],
     canvas_w: i32,
     canvas_h: i32,
@@ -968,8 +1020,8 @@ fn render_3d_spatial_scene(
     let mut projected_cards = Vec::new();
 
     if images.is_empty() {
-        // Fallback for non-image or text items: Clean floating card
-        render_floating_doc_card(buffer, canvas_w, canvas_h, item);
+        // Fallback for non-image or text items: Liquid Glass Floating Card
+        render_floating_glass_card(hdc, buffer, canvas_w, canvas_h, item, &mut projected_cards);
         return projected_cards;
     }
 
@@ -1546,82 +1598,556 @@ fn render_more_photos_badge(
 }
 
 // ----------------------------------------------------------------------------
-// Fallback Non-Image / Text Card
+// Liquid Glass Floating Card (URLs, Text, and Non-Image Files)
 // ----------------------------------------------------------------------------
 
-fn render_floating_doc_card(
+fn open_url_in_browser(url: &str) {
+    let url_wide: Vec<u16> = OsStr::new(url).encode_wide().chain(Some(0)).collect();
+    let op_wide: Vec<u16> = OsStr::new("open").encode_wide().chain(Some(0)).collect();
+    unsafe {
+        ShellExecuteW(
+            0 as HWND,
+            op_wide.as_ptr(),
+            url_wide.as_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            SW_SHOWNORMAL,
+        );
+    }
+}
+
+fn show_file_in_explorer(path: &Path) {
+    let param = format!("/select,\"{}\"", path.display());
+    let param_wide: Vec<u16> = OsStr::new(&param).encode_wide().chain(Some(0)).collect();
+    let explorer_wide: Vec<u16> = OsStr::new("explorer.exe").encode_wide().chain(Some(0)).collect();
+    let op_wide: Vec<u16> = OsStr::new("open").encode_wide().chain(Some(0)).collect();
+    unsafe {
+        ShellExecuteW(
+            0 as HWND,
+            op_wide.as_ptr(),
+            explorer_wide.as_ptr(),
+            param_wide.as_ptr(),
+            std::ptr::null(),
+            SW_SHOWNORMAL,
+        );
+    }
+}
+
+fn extract_domain(raw_url: &str) -> String {
+    let mut s = raw_url.trim();
+    if let Some(rest) = s.strip_prefix("https://") {
+        s = rest;
+    } else if let Some(rest) = s.strip_prefix("http://") {
+        s = rest;
+    }
+    let mut domain = s.split(['/', '?', '#', ':']).next().unwrap_or(s);
+    if let Some(rest) = domain.strip_prefix("www.") {
+        domain = rest;
+    }
+    if domain.is_empty() {
+        "Link".to_string()
+    } else {
+        domain.to_string()
+    }
+}
+
+fn format_size(bytes: u64) -> String {
+    if bytes < 1024 {
+        format!("{} B", bytes)
+    } else if bytes < 1024 * 1024 {
+        format!("{:.1} KB", bytes as f64 / 1024.0)
+    } else if bytes < 1024 * 1024 * 1024 {
+        format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
+    } else {
+        format!("{:.2} GB", bytes as f64 / (1024.0 * 1024.0 * 1024.0))
+    }
+}
+
+unsafe fn create_gdi_font(size: i32, bold: bool, monospace: bool) -> HFONT {
+    let font_name: Vec<u16> = if monospace {
+        OsStr::new("Consolas").encode_wide().chain(Some(0)).collect()
+    } else {
+        OsStr::new("Segoe UI").encode_wide().chain(Some(0)).collect()
+    };
+    let weight = if bold { 700 } else { 400 };
+    CreateFontW(
+        -size,
+        0,
+        0,
+        0,
+        weight,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        5,
+        0,
+        font_name.as_ptr(),
+    )
+}
+
+unsafe fn draw_glass_text(
+    hdc: HDC,
+    buffer: &mut [u8],
+    canvas_w: i32,
+    canvas_h: i32,
+    text: &str,
+    font: HFONT,
+    rgb_color: u32,
+    mut rc: RECT,
+    flags: u32,
+) {
+    let old_font = SelectObject(hdc, font as _);
+    SetBkMode(hdc, TRANSPARENT as _);
+    let r = (rgb_color >> 16) & 0xFF;
+    let g = (rgb_color >> 8) & 0xFF;
+    let b = rgb_color & 0xFF;
+    let colorref = r | (g << 8) | (b << 16);
+    SetTextColor(hdc, colorref);
+
+    let text_wide: Vec<u16> = OsStr::new(text).encode_wide().collect();
+    DrawTextW(
+        hdc,
+        text_wide.as_ptr(),
+        text_wide.len() as i32,
+        &mut rc,
+        flags,
+    );
+
+    SelectObject(hdc, old_font);
+
+    // Alpha fixup pass: GDI zeroes out the high byte of 32-bit DIB pixels it touched.
+    // Any pixel in rc that has alpha == 0 was rendered by GDI - set alpha to 255.
+    let x0 = rc.left.max(0).min(canvas_w - 1) as usize;
+    let x1 = rc.right.max(0).min(canvas_w) as usize;
+    let y0 = rc.top.max(0).min(canvas_h - 1) as usize;
+    let y1 = rc.bottom.max(0).min(canvas_h) as usize;
+
+    for y in y0..y1 {
+        let row = y * (canvas_w as usize) * 4;
+        for x in x0..x1 {
+            let p_idx = row + x * 4;
+            if buffer[p_idx + 3] == 0 {
+                buffer[p_idx + 3] = 255;
+            }
+        }
+    }
+}
+
+fn fill_glass_rounded_rect(
+    buffer: &mut [u8],
+    canvas_w: i32,
+    canvas_h: i32,
+    x0: i32,
+    y0: i32,
+    x1: i32,
+    y1: i32,
+    r: i32,
+    bg_b: u8,
+    bg_g: u8,
+    bg_r: u8,
+    bg_a: u8,
+    border_b: u8,
+    border_g: u8,
+    border_r: u8,
+    border_a: u8,
+) {
+    let r_f = r as f32;
+    for y in y0..y1 {
+        if y < 0 || y >= canvas_h { continue; }
+        let row = (y as usize) * (canvas_w as usize) * 4;
+        let is_top_edge = (y - y0) <= 2;
+        for x in x0..x1 {
+            if x < 0 || x >= canvas_w { continue; }
+
+            let mut dist_from_corner_center = 0.0f32;
+            let mut in_corner = false;
+
+            if x < x0 + r && y < y0 + r {
+                let dx = (x0 + r - x) as f32;
+                let dy = (y0 + r - y) as f32;
+                dist_from_corner_center = (dx * dx + dy * dy).sqrt();
+                in_corner = true;
+            } else if x >= x1 - r && y < y0 + r {
+                let dx = (x - (x1 - r - 1)) as f32;
+                let dy = (y0 + r - y) as f32;
+                dist_from_corner_center = (dx * dx + dy * dy).sqrt();
+                in_corner = true;
+            } else if x >= x1 - r && y >= y1 - r {
+                let dx = (x - (x1 - r - 1)) as f32;
+                let dy = (y - (y1 - r - 1)) as f32;
+                dist_from_corner_center = (dx * dx + dy * dy).sqrt();
+                in_corner = true;
+            } else if x < x0 + r && y >= y1 - r {
+                let dx = (x0 + r - x) as f32;
+                let dy = (y - (y1 - r - 1)) as f32;
+                dist_from_corner_center = (dx * dx + dy * dy).sqrt();
+                in_corner = true;
+            }
+
+            if in_corner && dist_from_corner_center > r_f {
+                continue;
+            }
+
+            let is_border = if in_corner {
+                dist_from_corner_center >= (r_f - 1.5)
+            } else {
+                x == x0 || x == x1 - 1 || y == y0 || y == y1 - 1
+            };
+
+            let p_idx = row + (x as usize) * 4;
+
+            if is_border {
+                if is_top_edge {
+                    buffer[p_idx + 0] = 255;
+                    buffer[p_idx + 1] = 255;
+                    buffer[p_idx + 2] = 255;
+                    buffer[p_idx + 3] = border_a.max(120);
+                } else {
+                    buffer[p_idx + 0] = border_b;
+                    buffer[p_idx + 1] = border_g;
+                    buffer[p_idx + 2] = border_r;
+                    buffer[p_idx + 3] = border_a;
+                }
+            } else {
+                buffer[p_idx + 0] = bg_b;
+                buffer[p_idx + 1] = bg_g;
+                buffer[p_idx + 2] = bg_r;
+                buffer[p_idx + 3] = bg_a;
+            }
+        }
+    }
+}
+
+fn render_ambient_glass_shadow(
+    buffer: &mut [u8],
+    canvas_w: i32,
+    canvas_h: i32,
+    x0: i32,
+    y0: i32,
+    x1: i32,
+    y1: i32,
+    r: i32,
+) {
+    let shadow_pad = 26;
+    let offset_y = 8;
+    let r_f = r as f32;
+
+    let min_x = (x0 - shadow_pad).max(0);
+    let max_x = (x1 + shadow_pad).min(canvas_w);
+    let min_y = (y0 - shadow_pad + offset_y).max(0);
+    let max_y = (y1 + shadow_pad + offset_y).min(canvas_h);
+
+    for y in min_y..max_y {
+        let row = (y as usize) * (canvas_w as usize) * 4;
+        let sy = y - offset_y;
+        for x in min_x..max_x {
+            let dx = if x < x0 + r {
+                (x0 + r - x) as f32
+            } else if x >= x1 - r {
+                (x - (x1 - r - 1)) as f32
+            } else {
+                0.0f32
+            };
+
+            let dy = if sy < y0 + r {
+                (y0 + r - sy) as f32
+            } else if sy >= y1 - r {
+                (sy - (y1 - r - 1)) as f32
+            } else {
+                0.0f32
+            };
+
+            let dist = if dx > 0.0 && dy > 0.0 {
+                (dx * dx + dy * dy).sqrt() - r_f
+            } else if dx > 0.0 {
+                dx - r_f
+            } else if dy > 0.0 {
+                dy - r_f
+            } else {
+                -1.0f32
+            };
+
+            if dist > 0.0 && dist <= shadow_pad as f32 {
+                let norm = 1.0 - (dist / shadow_pad as f32);
+                let shadow_a = (norm * norm * 75.0) as u8;
+                let p_idx = row + (x as usize) * 4;
+                if shadow_a > buffer[p_idx + 3] {
+                    buffer[p_idx + 0] = 0;
+                    buffer[p_idx + 1] = 0;
+                    buffer[p_idx + 2] = 0;
+                    buffer[p_idx + 3] = shadow_a;
+                }
+            }
+        }
+    }
+}
+
+fn render_floating_glass_card(
+    hdc: HDC,
     buffer: &mut [u8],
     canvas_w: i32,
     canvas_h: i32,
     item: &LandingItem,
+    projected_cards: &mut Vec<ProjectedCard>,
 ) {
     let card_w = 460;
-    let card_h = 240;
+    let card_h = match item {
+        LandingItem::Text { .. } => 220,
+        _ => 200,
+    };
     let x0 = (canvas_w - card_w) / 2;
     let y0 = (canvas_h - card_h) / 2;
     let x1 = x0 + card_w;
     let y1 = y0 + card_h;
+    let r = 20;
 
-    // Soft drop shadow
-    let shadow_margin = 20;
-    for y in (y0 - 5)..(y1 + shadow_margin) {
-        if y < 0 || y >= canvas_h { continue; }
-        let row = (y as usize) * (canvas_w as usize) * 4;
-        for x in (x0 - shadow_margin)..(x1 + shadow_margin) {
-            if x < 0 || x >= canvas_w { continue; }
-            let p_idx = row + (x as usize) * 4;
-            buffer[p_idx + 0] = 0;
-            buffer[p_idx + 1] = 0;
-            buffer[p_idx + 2] = 0;
-            buffer[p_idx + 3] = 70;
+    // 1. Ambient drop shadow
+    render_ambient_glass_shadow(buffer, canvas_w, canvas_h, x0, y0, x1, y1, r);
+
+    // 2. Liquid Glass / Frosted Obsidian Mica card body
+    fill_glass_rounded_rect(
+        buffer, canvas_w, canvas_h,
+        x0, y0, x1, y1, r,
+        32, 24, 18, 232,
+        140, 140, 140, 70,
+    );
+
+    // Register card in projected_cards for click / drag interaction!
+    projected_cards.push(ProjectedCard {
+        image_idx: 0,
+        z_depth: 0.0,
+        corners: [
+            Point2D { x: x0 as f32, y: y0 as f32 },
+            Point2D { x: x1 as f32, y: y0 as f32 },
+            Point2D { x: x1 as f32, y: y1 as f32 },
+            Point2D { x: x0 as f32, y: y1 as f32 },
+        ],
+    });
+
+    unsafe {
+        match item {
+            LandingItem::Url { url } => {
+                // Pill Badge: "🔗 LINK"
+                let pill_x0 = x0 + 24;
+                let pill_y0 = y0 + 20;
+                let pill_x1 = x0 + 94;
+                let pill_y1 = y0 + 44;
+                fill_glass_rounded_rect(
+                    buffer, canvas_w, canvas_h,
+                    pill_x0, pill_y0, pill_x1, pill_y1, 10,
+                    144, 80, 14, 180, // Cyan-tinted bg
+                    248, 189, 56, 180, // Cyan border
+                );
+
+                let badge_font = create_gdi_font(12, true, false);
+                draw_glass_text(
+                    hdc, buffer, canvas_w, canvas_h,
+                    "🔗 LINK", badge_font, 0x0038BDF8,
+                    RECT { left: pill_x0, top: pill_y0, right: pill_x1, bottom: pill_y1 },
+                    DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
+                );
+
+                // Right Hint: "CLICK TO OPEN ↗"
+                let hint_font = create_gdi_font(11, false, false);
+                draw_glass_text(
+                    hdc, buffer, canvas_w, canvas_h,
+                    "CLICK TO OPEN ↗", hint_font, 0x0094A3B8,
+                    RECT { left: x1 - 180, top: y0 + 22, right: x1 - 24, bottom: y0 + 42 },
+                    DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
+                );
+
+                // Extracted Domain Title (e.g. "github.com")
+                let domain = extract_domain(url);
+                let title_font = create_gdi_font(22, true, false);
+                draw_glass_text(
+                    hdc, buffer, canvas_w, canvas_h,
+                    &domain, title_font, 0x00FFFFFF,
+                    RECT { left: x0 + 24, top: y0 + 52, right: x1 - 24, bottom: y0 + 86 },
+                    DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX,
+                );
+
+                // Full URL Subtitle
+                let url_font = create_gdi_font(13, false, false);
+                draw_glass_text(
+                    hdc, buffer, canvas_w, canvas_h,
+                    url, url_font, 0x0038BDF8,
+                    RECT { left: x0 + 24, top: y0 + 88, right: x1 - 24, bottom: y0 + 114 },
+                    DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX,
+                );
+
+                // Action CTA Button: "Open in Browser ↗"
+                let btn_x0 = x0 + 24;
+                let btn_y0 = y0 + 134;
+                let btn_x1 = x0 + 185;
+                let btn_y1 = y0 + 172;
+                fill_glass_rounded_rect(
+                    buffer, canvas_w, canvas_h,
+                    btn_x0, btn_y0, btn_x1, btn_y1, 12,
+                    22, 115, 249, 255, // Electric Orange #F97316
+                    255, 180, 100, 255,
+                );
+
+                let btn_font = create_gdi_font(13, true, false);
+                draw_glass_text(
+                    hdc, buffer, canvas_w, canvas_h,
+                    "Open in Browser ↗", btn_font, 0x00FFFFFF,
+                    RECT { left: btn_x0, top: btn_y0, right: btn_x1, bottom: btn_y1 },
+                    DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
+                );
+
+                // Subtle footer hint: "Esc to close"
+                draw_glass_text(
+                    hdc, buffer, canvas_w, canvas_h,
+                    "Esc to close", hint_font, 0x0064748B,
+                    RECT { left: x1 - 140, top: y0 + 144, right: x1 - 24, bottom: y0 + 166 },
+                    DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
+                );
+
+                DeleteObject(badge_font as _);
+                DeleteObject(hint_font as _);
+                DeleteObject(title_font as _);
+                DeleteObject(url_font as _);
+                DeleteObject(btn_font as _);
+            }
+            LandingItem::Text { preview, length } => {
+                // Pill Badge: "📋 CLIPBOARD"
+                let pill_x0 = x0 + 24;
+                let pill_y0 = y0 + 20;
+                let pill_x1 = x0 + 125;
+                let pill_y1 = y0 + 44;
+                fill_glass_rounded_rect(
+                    buffer, canvas_w, canvas_h,
+                    pill_x0, pill_y0, pill_x1, pill_y1, 10,
+                    80, 120, 16, 180, // Emerald tint
+                    153, 211, 52, 180,
+                );
+
+                let badge_font = create_gdi_font(12, true, false);
+                draw_glass_text(
+                    hdc, buffer, canvas_w, canvas_h,
+                    "📋 CLIPBOARD", badge_font, 0x0034D399,
+                    RECT { left: pill_x0, top: pill_y0, right: pill_x1, bottom: pill_y1 },
+                    DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
+                );
+
+                // Right Char Count
+                let hint_font = create_gdi_font(11, false, false);
+                let count_str = format!("{} CHARS • COPIED", length);
+                draw_glass_text(
+                    hdc, buffer, canvas_w, canvas_h,
+                    &count_str, hint_font, 0x0094A3B8,
+                    RECT { left: x1 - 200, top: y0 + 22, right: x1 - 24, bottom: y0 + 42 },
+                    DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
+                );
+
+                // Body Text
+                let body_font = create_gdi_font(14, false, false);
+                draw_glass_text(
+                    hdc, buffer, canvas_w, canvas_h,
+                    preview, body_font, 0x00F8FAFC,
+                    RECT { left: x0 + 24, top: y0 + 56, right: x1 - 24, bottom: y0 + 145 },
+                    DT_LEFT | DT_TOP | DT_WORDBREAK | DT_END_ELLIPSIS | DT_NOPREFIX,
+                );
+
+                // Footer Status
+                let status_font = create_gdi_font(12, true, false);
+                draw_glass_text(
+                    hdc, buffer, canvas_w, canvas_h,
+                    "⚡ Copied to Windows Clipboard", status_font, 0x0034D399,
+                    RECT { left: x0 + 24, top: y0 + 165, right: x1 - 24, bottom: y0 + 195 },
+                    DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
+                );
+
+                DeleteObject(badge_font as _);
+                DeleteObject(hint_font as _);
+                DeleteObject(body_font as _);
+                DeleteObject(status_font as _);
+            }
+            LandingItem::Files { primary_name, count, total_bytes, .. } => {
+                // Pill Badge: "📁 FILE READY"
+                let pill_x0 = x0 + 24;
+                let pill_y0 = y0 + 20;
+                let pill_x1 = x0 + 130;
+                let pill_y1 = y0 + 44;
+                fill_glass_rounded_rect(
+                    buffer, canvas_w, canvas_h,
+                    pill_x0, pill_y0, pill_x1, pill_y1, 10,
+                    20, 100, 180, 180, // Amber tint
+                    50, 150, 240, 180,
+                );
+
+                let badge_font = create_gdi_font(12, true, false);
+                draw_glass_text(
+                    hdc, buffer, canvas_w, canvas_h,
+                    "📁 FILE READY", badge_font, 0x00FBBF24,
+                    RECT { left: pill_x0, top: pill_y0, right: pill_x1, bottom: pill_y1 },
+                    DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
+                );
+
+                // Right Size
+                let hint_font = create_gdi_font(11, false, false);
+                let size_str = format_size(*total_bytes);
+                draw_glass_text(
+                    hdc, buffer, canvas_w, canvas_h,
+                    &size_str, hint_font, 0x0094A3B8,
+                    RECT { left: x1 - 180, top: y0 + 22, right: x1 - 24, bottom: y0 + 42 },
+                    DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
+                );
+
+                // File Name Title
+                let title_font = create_gdi_font(20, true, false);
+                draw_glass_text(
+                    hdc, buffer, canvas_w, canvas_h,
+                    primary_name, title_font, 0x00FFFFFF,
+                    RECT { left: x0 + 24, top: y0 + 52, right: x1 - 24, bottom: y0 + 86 },
+                    DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX,
+                );
+
+                // File Count Subtitle
+                let sub_font = create_gdi_font(13, false, false);
+                let count_str = if *count > 1 {
+                    format!("{} files ready to paste or drag", count)
+                } else {
+                    "Ready to paste or open".to_string()
+                };
+                draw_glass_text(
+                    hdc, buffer, canvas_w, canvas_h,
+                    &count_str, sub_font, 0x0094A3B8,
+                    RECT { left: x0 + 24, top: y0 + 88, right: x1 - 24, bottom: y0 + 114 },
+                    DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
+                );
+
+                // Action Button: "Show in Explorer ↗"
+                let btn_x0 = x0 + 24;
+                let btn_y0 = y0 + 134;
+                let btn_x1 = x0 + 185;
+                let btn_y1 = y0 + 172;
+                fill_glass_rounded_rect(
+                    buffer, canvas_w, canvas_h,
+                    btn_x0, btn_y0, btn_x1, btn_y1, 12,
+                    80, 50, 30, 220, // Slate Cyan
+                    120, 80, 50, 255,
+                );
+
+                let btn_font = create_gdi_font(13, true, false);
+                draw_glass_text(
+                    hdc, buffer, canvas_w, canvas_h,
+                    "Show in Explorer ↗", btn_font, 0x00FFFFFF,
+                    RECT { left: btn_x0, top: btn_y0, right: btn_x1, bottom: btn_y1 },
+                    DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
+                );
+
+                DeleteObject(badge_font as _);
+                DeleteObject(hint_font as _);
+                DeleteObject(title_font as _);
+                DeleteObject(sub_font as _);
+                DeleteObject(btn_font as _);
+            }
         }
     }
-
-    // Pure pristine white floating card with rounded corners
-    let r = 22;
-    for y in y0..y1 {
-        if y < 0 || y >= canvas_h { continue; }
-        let row = (y as usize) * (canvas_w as usize) * 4;
-        for x in x0..x1 {
-            if x < 0 || x >= canvas_w { continue; }
-
-            // Rounded corner check
-            let mut corner_sq = 0.0f32;
-            let mut is_c = false;
-            if x < x0 + r && y < y0 + r {
-                let dx = (x0 + r - x) as f32 / r as f32;
-                let dy = (y0 + r - y) as f32 / r as f32;
-                corner_sq = dx * dx + dy * dy;
-                is_c = true;
-            } else if x > x1 - r && y < y0 + r {
-                let dx = (x - (x1 - r)) as f32 / r as f32;
-                let dy = (y0 + r - y) as f32 / r as f32;
-                corner_sq = dx * dx + dy * dy;
-                is_c = true;
-            } else if x > x1 - r && y > y1 - r {
-                let dx = (x - (x1 - r)) as f32 / r as f32;
-                let dy = (y - (y1 - r)) as f32 / r as f32;
-                corner_sq = dx * dx + dy * dy;
-                is_c = true;
-            } else if x < x0 + r && y > y1 - r {
-                let dx = (x0 + r - x) as f32 / r as f32;
-                let dy = (y - (y1 - r)) as f32 / r as f32;
-                corner_sq = dx * dx + dy * dy;
-                is_c = true;
-            }
-
-            if is_c && corner_sq > 1.0 {
-                continue;
-            }
-
-            let p_idx = row + (x as usize) * 4;
-            buffer[p_idx + 0] = 255;
-            buffer[p_idx + 1] = 255;
-            buffer[p_idx + 2] = 255;
-            buffer[p_idx + 3] = 255;
-        }
-    }
-    let _ = item;
 }
 
 // ----------------------------------------------------------------------------

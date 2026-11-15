@@ -982,7 +982,12 @@ fn handle_clipboard<S: Read + Write>(
     };
 
     clipboard::enqueue_text_delivery(text.to_string());
-    crate::landing::show_landing_text(text);
+    let trimmed = text.trim();
+    if (trimmed.starts_with("http://") || trimmed.starts_with("https://")) && !trimmed.contains('\n') {
+        crate::landing::show_landing_url(trimmed.to_string());
+    } else {
+        crate::landing::show_landing_text(text);
+    }
     play_arrival_chime();
     crate::tray::show_tray_notification("Flick Clipboard", &format!("Text copied to clipboard ({} chars)", text.chars().count()));
 

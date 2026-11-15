@@ -12,8 +12,8 @@ use windows_sys::Win32::Graphics::Gdi::HBRUSH;
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::HiDpi::SetProcessDpiAwarenessContext;
 use windows_sys::Win32::UI::Shell::{
-    ShellExecuteW, Shell_NotifyIconW, NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_TIP,
-    NIIF_INFO, NIM_ADD, NIM_DELETE, NIM_MODIFY, NOTIFYICONDATAW,
+    ShellExecuteW, Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE,
+    NOTIFYICONDATAW,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu,
@@ -53,35 +53,13 @@ const ID_TRAY_QUIT: usize = 1030;
 
 static TRAY_HWND: AtomicPtr<core::ffi::c_void> = AtomicPtr::new(std::ptr::null_mut());
 
+#[allow(dead_code)]
 pub fn get_tray_hwnd() -> HWND {
     TRAY_HWND.load(Ordering::SeqCst) as HWND
 }
 
-pub fn show_tray_notification(title: &str, message: &str) {
-    let hwnd = get_tray_hwnd();
-    if hwnd.is_null() {
-        return;
-    }
-
-    let mut nid: NOTIFYICONDATAW = unsafe { std::mem::zeroed() };
-    nid.cbSize = std::mem::size_of::<NOTIFYICONDATAW>() as u32;
-    nid.hWnd = hwnd;
-    nid.uID = 1;
-    nid.uFlags = NIF_INFO;
-    nid.dwInfoFlags = NIIF_INFO | 0x10; // 0x10 is NIIF_NOSOUND (silent toast)
-
-    let info_wide: Vec<u16> = OsStr::new(message).encode_wide().chain(Some(0)).collect();
-    let title_wide: Vec<u16> = OsStr::new(title).encode_wide().chain(Some(0)).collect();
-
-    let copy_len_info = info_wide.len().min(nid.szInfo.len() - 1);
-    nid.szInfo[..copy_len_info].copy_from_slice(&info_wide[..copy_len_info]);
-
-    let copy_len_title = title_wide.len().min(nid.szInfoTitle.len() - 1);
-    nid.szInfoTitle[..copy_len_title].copy_from_slice(&title_wide[..copy_len_title]);
-
-    unsafe {
-        Shell_NotifyIconW(NIM_MODIFY, &nid);
-    }
+pub fn show_tray_notification(_title: &str, _message: &str) {
+    // Disabled permanently: User explicitly requested zero Windows tray/balloon notifications
 }
 
 pub fn run_tray_message_loop(start_minimized: bool, start_pair: bool) {

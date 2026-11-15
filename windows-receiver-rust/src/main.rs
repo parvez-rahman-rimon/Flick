@@ -84,7 +84,13 @@ fn main() {
             let is_pair = std::env::args().any(|a| a == "--pair" || a == "-p");
             let is_test_landing = std::env::args().any(|a| a == "--test-landing");
             let is_test_batch = std::env::args().any(|a| a == "--test-batch" || a == "-b");
-            if is_test_batch {
+            let is_test_url = std::env::args().any(|a| a == "--test-url" || a == "-u");
+            let is_test_text = std::env::args().any(|a| a == "--test-text" || a == "-t");
+            if is_test_url {
+                send_local_ipc("URL");
+            } else if is_test_text {
+                send_local_ipc("TEXT");
+            } else if is_test_batch {
                 send_local_ipc("BATCH");
             } else if is_test_landing {
                 send_local_ipc("LANDING");
@@ -182,6 +188,8 @@ fn main() {
                         match cmd {
                             "BATCH" => tray::trigger_sample_batch_landing(),
                             "LANDING" => tray::trigger_sample_landing(),
+                            "URL" => landing::show_landing_url("https://github.com/torvalds/linux".to_string()),
+                            "TEXT" => landing::show_landing_text("Flick Liquid Glass: Beautiful frosted dark mica preview for your clipboard text!"),
                             "DASHBOARD" => gui::open_or_show_dashboard(false),
                             "PAIR" => gui::open_or_show_dashboard(true),
                             c if c.starts_with("SOUND:") => {
