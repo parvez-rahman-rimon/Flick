@@ -15,6 +15,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -62,6 +63,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -176,7 +178,13 @@ fun SpatialFlickDeck(
         }
     }
 
-    val pagerState = rememberPagerState(initialPage = 0, pageCount = { deckItems.size.coerceAtLeast(1) })
+    var focusedIndex by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(deckItems.size) {
+        if (deckItems.isNotEmpty() && focusedIndex >= deckItems.size) {
+            focusedIndex = (deckItems.size / 2).coerceAtMost(deckItems.size - 1)
+        }
+    }
 
     // Physical drag & shoot animation state
     val dragY = remember { Animatable(0f) }
@@ -197,7 +205,7 @@ fun SpatialFlickDeck(
                 animationSpec = tween(durationMillis = 280, easing = FastOutLinearInEasing)
             )
             delay(120)
-            val activeItem = deckItems.getOrNull(pagerState.currentPage)
+            val activeItem = deckItems.getOrNull(focusedIndex)
             val toSend = if (isSingle && activeItem?.uri != null) {
                 listOf(activeItem.uri)
             } else if (isSingle && uris.isNotEmpty()) {
@@ -350,7 +358,7 @@ fun SpatialFlickDeck(
                 }
             }
 
-            // 2. Center 3D Cover Flow Deck with Interactive Swipe-Up
+            // 2. Center 3D Fanned Arc Deck (Tap to Bring Any Photo to Front)
             val currentY = dragY.value
             val deckAlpha = (1f + (currentY / 1200f)).coerceIn(0.15f, 1.0f)
             val deckScale = (1f + (currentY / 2000f)).coerceIn(0.85f, 1.0f)
@@ -368,62 +376,109 @@ fun SpatialFlickDeck(
                 if (deckItems.isEmpty()) {
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth(0.82f)
-                            .aspectRatio(0.88f)
+                            .fillMaxWidth(0.80f)
+                            .aspectRatio(0.85f)
                             .clip(RoundedCornerShape(24.dp))
                             .background(Color(0xFF191B24))
                     )
                 } else if (deckItems.size == 1) {
                     val item = deckItems[0]
-                    CoverFlowCard(
+                    FannedDeckCard(
                         item = item,
-                        absOffset = 0f,
+                        index = 0,
+                        isFocused = true,
+                        diff = 0,
                         modifier = Modifier
-                            .fillMaxWidth(0.82f)
-                            .aspectRatio(0.88f)
+                            .fillMaxWidth(0.80f)
+                            .aspectRatio(0.85f)
                     )
                 } else {
-                    // Dynamic 3D Cover Flow Carousel
-                    HorizontalPager(
-                        state = pagerState,
+                    // Splayed Fan Deck (Hand of Cards)
+                    val density = LocalDensity.current
+                    val stepXPx = with(density) { 38.dp.toPx() }
+                    val maxSpreadXPx = with(density) { 130.dp.toPx() }
+                    val elevateYPx = with(density) { (-16).dp.toPx() }
+                    val stepYPx = with(density) { 10.dp.toPx() }
+
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(340.dp),
-                        contentPadding = PaddingValues(horizontal = 72.dp),
-                        pageSpacing = (-22).dp
-                    ) { page ->
-                        val item = deckItems.getOrNull(page)
-                        val pageOffset = ((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction)
-                        val absOffset = kotlin.math.abs(pageOffset).coerceAtMost(2.5f)
+                            .height(350.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        deckItems.forEachIndexed { index, item ->
+                            val diff = index - focusedIndex
+                            val absDiff = kotlin.math.abs(diff)
 
-                        // 3D Perspective Rotation:
-                        // Left cards: positive rotationY (angles inward toward center)
-                        // Right cards: negative rotationY (angles inward toward center)
-                        val rotationY = (pageOffset * -46f).coerceIn(-54f, 54f)
-                        val scale = (1f - (absOffset * 0.16f)).coerceIn(0.70f, 1.0f)
-                        val alpha = (1f - (absOffset * 0.25f)).coerceIn(0.50f, 1.0f)
-                        val zIndex = 100f - absOffset * 10f
+                            // Physics-based spring targets for fanned arc
+                            val targetRotation = (diff * 8.5f).coerceIn(-28f, 28f)
+                            val targetTranslationX = (diff * stepXPx).coerceIn(-maxSpreadXPx, maxSpreadXPx)
+                            val targetTranslationY = if (diff == 0) elevateYPx else (absDiff * stepYPx)
+                            val targetScale = if (diff == 0) 1.05f else (1.0f - absDiff * 0.05f).coerceAtLeast(0.84f)
+                            val zIndex = if (diff == 0) 100f else (50f - absDiff)
 
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .zIndex(zIndex)
-                                .graphicsLayer {
-                                    this.rotationY = rotationY
-                                    this.scaleX = scale
-                                    this.scaleY = scale
-                                    this.alpha = alpha
-                                    this.cameraDistance = 16f * density.density
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            if (item != null) {
-                                CoverFlowCard(
+                            val animRotation by animateFloatAsState(
+                                targetValue = targetRotation,
+                                animationSpec = spring(
+                                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                                    stiffness = Spring.StiffnessMediumLow
+                                ),
+                                label = "rot_$index"
+                            )
+                            val animTransX by animateFloatAsState(
+                                targetValue = targetTranslationX,
+                                animationSpec = spring(
+                                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                                    stiffness = Spring.StiffnessMediumLow
+                                ),
+                                label = "tx_$index"
+                            )
+                            val animTransY by animateFloatAsState(
+                                targetValue = targetTranslationY,
+                                animationSpec = spring(
+                                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                                    stiffness = Spring.StiffnessMediumLow
+                                ),
+                                label = "ty_$index"
+                            )
+                            val animScale by animateFloatAsState(
+                                targetValue = targetScale,
+                                animationSpec = spring(
+                                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                                    stiffness = Spring.StiffnessMediumLow
+                                ),
+                                label = "scale_$index"
+                            )
+
+                            Box(
+                                modifier = Modifier
+                                    .zIndex(zIndex)
+                                    .graphicsLayer {
+                                        this.rotationZ = animRotation
+                                        this.translationX = animTransX
+                                        this.translationY = animTransY
+                                        this.scaleX = animScale
+                                        this.scaleY = animScale
+                                        this.cameraDistance = 16f * density.density
+                                    }
+                                    .clickable {
+                                        if (focusedIndex != index) {
+                                            focusedIndex = index
+                                            try {
+                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            } catch (_: Exception) {}
+                                        }
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                FannedDeckCard(
                                     item = item,
-                                    absOffset = absOffset,
+                                    index = index,
+                                    isFocused = (diff == 0),
+                                    diff = diff,
                                     modifier = Modifier
-                                        .fillMaxWidth(0.92f)
-                                        .aspectRatio(0.86f)
+                                        .fillMaxWidth(0.74f)
+                                        .aspectRatio(0.85f)
                                 )
                             }
                         }
@@ -432,8 +487,8 @@ fun SpatialFlickDeck(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Metadata Telemetry (Active Card Info)
-                val activeItem = deckItems.getOrNull(pagerState.currentPage)
+                // Active Card Telemetry & File Name
+                val activeItem = deckItems.getOrNull(focusedIndex)
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier.padding(horizontal = 24.dp)
@@ -453,7 +508,7 @@ fun SpatialFlickDeck(
                         horizontalArrangement = Arrangement.Center
                     ) {
                         Text(
-                            text = if (deckItems.size > 1) "PHOTO ${pagerState.currentPage + 1} OF ${deckItems.size}" else "READY TO TELEPORT",
+                            text = if (deckItems.size > 1) "PHOTO ${focusedIndex + 1} OF ${deckItems.size}" else "READY TO TELEPORT",
                             style = MaterialTheme.typography.labelSmall,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
@@ -471,23 +526,56 @@ fun SpatialFlickDeck(
                         }
                     }
 
-                    // Pagination indicator dots
+                    // Mini Thumbnail Dock (Underneath the cards, just like the reference image!)
                     if (deckItems.size > 1) {
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(10.dp))
                         Row(
-                            horizontalArrangement = Arrangement.Center,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            val maxDots = deckItems.size.coerceAtMost(10)
-                            for (i in 0 until maxDots) {
-                                val isSelected = i == pagerState.currentPage.coerceAtMost(maxDots - 1)
+                            deckItems.forEachIndexed { i, itm ->
+                                val isSelected = i == focusedIndex
                                 Box(
                                     modifier = Modifier
-                                        .padding(horizontal = 3.dp)
-                                        .size(if (isSelected) 6.dp else 4.dp)
-                                        .clip(CircleShape)
-                                        .background(if (isSelected) Color(0xFFFF5722) else Color(0x558892B0))
-                                )
+                                        .size(if (isSelected) 34.dp else 26.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(Color(0xFF222633))
+                                        .border(
+                                            width = if (isSelected) 2.dp else 1.dp,
+                                            color = if (isSelected) Color(0xFFFF5722) else Color(0x44FFFFFF),
+                                            shape = RoundedCornerShape(8.dp)
+                                        )
+                                        .clickable {
+                                            if (focusedIndex != i) {
+                                                focusedIndex = i
+                                                try {
+                                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                } catch (_: Exception) {}
+                                            }
+                                        }
+                                ) {
+                                    if (itm.bitmap != null) {
+                                        Image(
+                                            bitmap = itm.bitmap.asImageBitmap(),
+                                            contentDescription = null,
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+                                    } else {
+                                        Box(
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = "${i + 1}",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = Color.White,
+                                                fontSize = 9.sp,
+                                                fontFamily = FontFamily.Monospace
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -611,24 +699,26 @@ fun SpatialFlickDeck(
 }
 
 @Composable
-private fun CoverFlowCard(
+private fun FannedDeckCard(
     item: FlickCardItem,
-    absOffset: Float,
+    index: Int,
+    isFocused: Boolean,
+    diff: Int,
     modifier: Modifier = Modifier
 ) {
     Box(
         modifier = modifier
             .shadow(
-                elevation = if (absOffset < 0.5f) 28.dp else 10.dp,
-                shape = RoundedCornerShape(24.dp),
-                spotColor = Color(0x66FF5722)
+                elevation = if (isFocused) 32.dp else 10.dp,
+                shape = RoundedCornerShape(22.dp),
+                spotColor = if (isFocused) Color(0x88FF5722) else Color(0x44000000)
             )
-            .clip(RoundedCornerShape(24.dp))
+            .clip(RoundedCornerShape(22.dp))
             .background(Color(0xFF191B24))
             .border(
-                1.5.dp,
-                if (absOffset < 0.5f) Color(0xFF4C5369) else Color(0xFF2E3342),
-                RoundedCornerShape(24.dp)
+                width = if (isFocused) 2.dp else 1.dp,
+                color = if (isFocused) Color(0xFFFF6D3A) else Color(0xFF383E4F),
+                shape = RoundedCornerShape(22.dp)
             ),
         contentAlignment = Alignment.Center
     ) {
@@ -648,7 +738,7 @@ private fun CoverFlowCard(
                     imageVector = Icons.Rounded.PhotoLibrary,
                     contentDescription = null,
                     tint = Color(0x55FFFFFF),
-                    modifier = Modifier.size(48.dp)
+                    modifier = Modifier.size(44.dp)
                 )
             }
         } else {
@@ -663,9 +753,9 @@ private fun CoverFlowCard(
                     imageVector = Icons.Rounded.Bolt,
                     contentDescription = null,
                     tint = Color(0xFFFF5722),
-                    modifier = Modifier.size(48.dp)
+                    modifier = Modifier.size(44.dp)
                 )
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(10.dp))
                 Text(
                     text = item.fileName,
                     style = MaterialTheme.typography.bodyMedium,
@@ -678,27 +768,38 @@ private fun CoverFlowCard(
             }
         }
 
-        // Perspective lighting depth: angled side cards receive realistic ambient shadow tint
-        if (absOffset > 0.08f) {
+        // Ambient depth darkening for non-focused cards behind
+        if (!isFocused) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = (absOffset * 0.32f).coerceIn(0f, 0.44f)))
+                    .background(Color.Black.copy(alpha = (kotlin.math.abs(diff) * 0.12f).coerceIn(0.15f, 0.40f)))
             )
         }
 
-        // Soft ground reflection / ambient rim at bottom
+        // Top-Left Pill Badge ("01", "02", "03" - matching user reference)
         Box(
             modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .height(30.dp)
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(Color.Transparent, Color(0x44000000))
-                    )
+                .align(Alignment.TopStart)
+                .padding(10.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(if (isFocused) Color(0xDDFF5722) else Color(0xCC161922))
+                .border(
+                    width = 1.dp,
+                    color = if (isFocused) Color(0xAAFFFFFF) else Color(0x33FFFFFF),
+                    shape = RoundedCornerShape(10.dp)
                 )
-        )
+                .padding(horizontal = 8.dp, vertical = 3.dp)
+        ) {
+            Text(
+                text = String.format(java.util.Locale.US, "%02d", index + 1),
+                style = MaterialTheme.typography.labelSmall,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+                fontSize = 10.sp,
+                color = Color.White
+            )
+        }
     }
 }
 

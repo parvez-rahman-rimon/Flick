@@ -41,7 +41,7 @@ use windows_sys::Win32::System::Ole::{
     DoDragDrop, CF_HDROP, DROPEFFECT_COPY, DROPEFFECT_MOVE,
 };
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    GetAsyncKeyState, ReleaseCapture, VK_CONTROL, VK_ESCAPE,
+    GetAsyncKeyState, ReleaseCapture, VK_CONTROL, VK_ESCAPE, VK_LEFT, VK_RIGHT,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, GetSystemMetrics,
@@ -50,7 +50,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     UpdateLayeredWindow, CS_HREDRAW, CS_VREDRAW, HTCAPTION, IDC_ARROW, SM_CXDRAG, SM_CYDRAG,
     SPI_GETWORKAREA, SWP_NOACTIVATE, SWP_SHOWWINDOW, SW_HIDE, SW_SHOWNOACTIVATE, ULW_ALPHA,
     WM_CLOSE, WM_DESTROY, WM_ERASEBKGND, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP,
-    WM_MOUSEMOVE, WM_NCLBUTTONDOWN, WM_PAINT, WM_TIMER, WM_USER, WNDCLASSEXW, WS_EX_LAYERED,
+    WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCLBUTTONDOWN, WM_PAINT, WM_TIMER, WM_USER, WNDCLASSEXW, WS_EX_LAYERED,
     WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
 };
 
@@ -111,6 +111,7 @@ struct ProjectedCard {
     corners: [Point2D; 4], // P0: TL, P1: TR, P2: BR, P3: BL
     #[allow(dead_code)]
     z_depth: f32,
+    image_idx: usize,
 }
 
 struct LandingState {
@@ -129,9 +130,11 @@ struct LandingState {
     drag_start_pt: POINT,
     mem_dc: HDC,
     dib_bitmap: HBITMAP,
-    #[allow(dead_code)]
     dib_bits: *mut u8,
     cards: Vec<ProjectedCard>,
+    images: Vec<LoadedImage>,
+    focus_idx: usize,
+    clicked_card_idx: Option<usize>,
 }
 
 unsafe impl Send for LandingState {}
@@ -268,12 +271,12 @@ fn dispatch_landing(item: LandingItem) {
                     }
                 }
                 let w = match images.len() {
-                    3 => 1060,
-                    4..=5 => 1240,
-                    6..=7 => 1400,
-                    _ => 1520,
+                    3 => 1160,
+                    4..=5 => 1320,
+                    6..=7 => 1460,
+                    _ => 1560,
                 };
-                (w, 660)
+                (w, 680)
             }
         }
         LandingItem::Files { .. } => (520, 360),
@@ -440,14 +443,59 @@ unsafe extern "system" fn landing_wnd_proc(
             if let Some(state_arc) = get_active_state() {
                 let mut s = state_arc.lock().unwrap();
 
-                // Check if clicked inside any 3D card
+                // 1. Check pagination dots first!
+                let total_dots = s.images.len().min(12);
+                let mut clicked_dot = None;
+                if total_dots > 1 {
+                    let dot_spacing = 16.0f32;
+                    let cx = (s.canvas_w as f32) / 2.0;
+                    let cy = (s.canvas_h as f32) / 2.0;
+                    let start_x = cx - ((total_dots as f32 - 1.0) * dot_spacing) / 2.0;
+                    let y_center = cy + 242.0;
+
+                    if (y - y_center).abs() <= 14.0 {
+                        for i in 0..total_dots {
+                            let dot_x = start_x + (i as f32) * dot_spacing;
+                            if (x - dot_x).abs() <= 10.0 {
+                                clicked_dot = Some(i);
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if let Some(dot_idx) = clicked_dot {
+                    if dot_idx != s.focus_idx {
+                        s.focus_idx = dot_idx;
+                        let total_bytes = (s.canvas_w * s.canvas_h * 4) as usize;
+                        let dib_slice = unsafe { std::slice::from_raw_parts_mut(s.dib_bits, total_bytes) };
+                        s.cards = render_3d_spatial_scene(
+                            dib_slice,
+                            s.canvas_w,
+                            s.canvas_h,
+                            &s.item,
+                            &s.images,
+                            s.focus_idx,
+                        );
+                        unsafe {
+                            commit_layered_frame(hwnd, &s);
+                        }
+                    }
+                    s.last_interaction = Instant::now();
+                    return 0;
+                }
+
+                // 2. Check if clicked inside any 3D card (iterate in reverse: front card first!)
                 let clicked_card = s
                     .cards
                     .iter()
-                    .any(|c| point_in_quad(Point2D { x, y }, &c.corners));
+                    .rev()
+                    .find(|c| point_in_quad(Point2D { x, y }, &c.corners))
+                    .map(|c| c.image_idx);
 
-                if clicked_card {
+                if let Some(card_idx) = clicked_card {
                     s.is_dragging_candidate = true;
+                    s.clicked_card_idx = Some(card_idx);
                     s.drag_start_pt = POINT {
                         x: x as i32,
                         y: y as i32,
@@ -485,6 +533,7 @@ unsafe extern "system" fn landing_wnd_proc(
 
                     if dx > drag_cx || dy > drag_cy {
                         s.is_dragging_candidate = false;
+                        s.clicked_card_idx = None;
                         let item_clone = s.item.clone();
                         drop(s);
 
@@ -503,13 +552,105 @@ unsafe extern "system" fn landing_wnd_proc(
         WM_LBUTTONUP => {
             if let Some(state_arc) = get_active_state() {
                 let mut s = state_arc.lock().unwrap();
-                s.is_dragging_candidate = false;
+                if s.is_dragging_candidate {
+                    s.is_dragging_candidate = false;
+                    if let Some(clicked_idx) = s.clicked_card_idx.take() {
+                        if clicked_idx != s.focus_idx {
+                            s.focus_idx = clicked_idx;
+                            let total_bytes = (s.canvas_w * s.canvas_h * 4) as usize;
+                            let dib_slice = unsafe { std::slice::from_raw_parts_mut(s.dib_bits, total_bytes) };
+                            s.cards = render_3d_spatial_scene(
+                                dib_slice,
+                                s.canvas_w,
+                                s.canvas_h,
+                                &s.item,
+                                &s.images,
+                                s.focus_idx,
+                            );
+                            unsafe {
+                                commit_layered_frame(hwnd, &s);
+                            }
+                            s.last_interaction = Instant::now();
+                        }
+                    }
+                }
+            }
+            0
+        }
+        WM_MOUSEWHEEL => {
+            let delta = ((wparam >> 16) & 0xFFFF) as i16;
+            if let Some(state_arc) = get_active_state() {
+                let mut s = state_arc.lock().unwrap();
+                let prev_idx = s.focus_idx;
+                if delta > 0 && s.focus_idx > 0 {
+                    s.focus_idx -= 1;
+                } else if delta < 0 && !s.images.is_empty() && s.focus_idx + 1 < s.images.len() {
+                    s.focus_idx += 1;
+                }
+                if s.focus_idx != prev_idx {
+                    let total_bytes = (s.canvas_w * s.canvas_h * 4) as usize;
+                    let dib_slice = unsafe { std::slice::from_raw_parts_mut(s.dib_bits, total_bytes) };
+                    s.cards = render_3d_spatial_scene(
+                        dib_slice,
+                        s.canvas_w,
+                        s.canvas_h,
+                        &s.item,
+                        &s.images,
+                        s.focus_idx,
+                    );
+                    unsafe {
+                        commit_layered_frame(hwnd, &s);
+                    }
+                    s.last_interaction = Instant::now();
+                }
             }
             0
         }
         WM_KEYDOWN => {
             if wparam == VK_ESCAPE as usize {
                 trigger_dismiss();
+            } else if wparam == VK_LEFT as usize {
+                if let Some(state_arc) = get_active_state() {
+                    let mut s = state_arc.lock().unwrap();
+                    if s.focus_idx > 0 {
+                        s.focus_idx -= 1;
+                        let total_bytes = (s.canvas_w * s.canvas_h * 4) as usize;
+                        let dib_slice = unsafe { std::slice::from_raw_parts_mut(s.dib_bits, total_bytes) };
+                        s.cards = render_3d_spatial_scene(
+                            dib_slice,
+                            s.canvas_w,
+                            s.canvas_h,
+                            &s.item,
+                            &s.images,
+                            s.focus_idx,
+                        );
+                        unsafe {
+                            commit_layered_frame(hwnd, &s);
+                        }
+                        s.last_interaction = Instant::now();
+                    }
+                }
+            } else if wparam == VK_RIGHT as usize {
+                if let Some(state_arc) = get_active_state() {
+                    let mut s = state_arc.lock().unwrap();
+                    if !s.images.is_empty() && s.focus_idx + 1 < s.images.len() {
+                        s.focus_idx += 1;
+                        let total_bytes = (s.canvas_w * s.canvas_h * 4) as usize;
+                        let dib_slice = unsafe { std::slice::from_raw_parts_mut(s.dib_bits, total_bytes) };
+                        s.cards = render_3d_spatial_scene(
+                            dib_slice,
+                            s.canvas_w,
+                            s.canvas_h,
+                            &s.item,
+                            &s.images,
+                            s.focus_idx,
+                        );
+                        unsafe {
+                            commit_layered_frame(hwnd, &s);
+                        }
+                        s.last_interaction = Instant::now();
+                    }
+                }
             }
             0
         }
@@ -592,12 +733,14 @@ unsafe fn handle_show_landing(hwnd: HWND) {
     );
 
     // Render 3D Spatial Scene onto 32-bit ARGB surface once
+    let initial_focus = if p.images.is_empty() { 0 } else { p.images.len() / 2 };
     let projected_cards = render_3d_spatial_scene(
         dib_slice,
         canvas_w,
         canvas_h,
         &p.item,
         &p.images,
+        initial_focus,
     );
 
     let state = Arc::new(Mutex::new(LandingState {
@@ -618,6 +761,9 @@ unsafe fn handle_show_landing(hwnd: HWND) {
         dib_bitmap,
         dib_bits: bits_ptr as *mut u8,
         cards: projected_cards,
+        images: p.images,
+        focus_idx: initial_focus,
+        clicked_card_idx: None,
     }));
 
     {
@@ -813,6 +959,7 @@ fn render_3d_spatial_scene(
     canvas_h: i32,
     item: &LandingItem,
     images: &[LoadedImage],
+    focus_idx: usize,
 ) -> Vec<ProjectedCard> {
     // 1. Clear buffer to complete transparency (RGBA 0, 0, 0, 0)
     buffer.fill(0);
@@ -831,7 +978,7 @@ fn render_3d_spatial_scene(
     let focal = 850.0f32;
     let camera_dist = 850.0f32;
 
-    // 2. Define 3D Card Layouts matching the Reel
+    // 2. Define 3D Card Layouts matching the Reel & Reference Designs
     let mut card_configs: Vec<CardConfig> = match count {
         1 => {
             let img = &images[0];
@@ -856,76 +1003,44 @@ fn render_3d_spatial_scene(
             }]
         }
         2 => {
+            let active = focus_idx.min(1);
+            let (z0, z1, y0, y1, yaw0, yaw1) = if active == 0 {
+                (-25.0, 35.0, -10.0, 10.0, -4.0, 7.0)
+            } else {
+                (35.0, -25.0, 10.0, -10.0, 7.0, -4.0)
+            };
             vec![
                 CardConfig {
                     image_idx: 0,
                     w: 330.0,
                     h: 440.0,
-                    yaw_deg: 8.0,
-                    pitch_deg: -1.5,
-                    roll_deg: -3.0,
-                    trans_x: -135.0,
-                    trans_y: 10.0,
-                    trans_z: 35.0, // Behind
+                    yaw_deg: yaw0,
+                    pitch_deg: -1.0,
+                    roll_deg: -2.0,
+                    trans_x: -125.0,
+                    trans_y: y0,
+                    trans_z: z0,
                 },
                 CardConfig {
                     image_idx: 1,
                     w: 330.0,
                     h: 440.0,
-                    yaw_deg: -5.0,
+                    yaw_deg: yaw1,
                     pitch_deg: -1.0,
                     roll_deg: 2.0,
-                    trans_x: 135.0,
-                    trans_y: -10.0,
-                    trans_z: -20.0, // Front
-                },
-            ]
-        }
-        3 => {
-            vec![
-                CardConfig {
-                    image_idx: 0,
-                    w: 285.0,
-                    h: 410.0,
-                    yaw_deg: 46.0,
-                    pitch_deg: -1.0,
-                    roll_deg: 0.0,
-                    trans_x: -240.0,
-                    trans_y: 2.0,
-                    trans_z: 60.0,
-                },
-                CardConfig {
-                    image_idx: 2,
-                    w: 285.0,
-                    h: 410.0,
-                    yaw_deg: -46.0,
-                    pitch_deg: -1.0,
-                    roll_deg: 0.0,
-                    trans_x: 240.0,
-                    trans_y: 2.0,
-                    trans_z: 60.0,
-                },
-                CardConfig {
-                    image_idx: 1,
-                    w: 320.0,
-                    h: 440.0,
-                    yaw_deg: 0.0,
-                    pitch_deg: 0.0,
-                    roll_deg: 0.0,
-                    trans_x: 0.0,
-                    trans_y: 0.0,
-                    trans_z: -30.0,
+                    trans_x: 125.0,
+                    trans_y: y1,
+                    trans_z: z1,
                 },
             ]
         }
         _ => {
-            // Dynamic Cover Flow for 4, 5, 6, 7, 8, 9+ photos!
-            let total = count;
-            let mid = total / 2;
+            // Dynamic Cover Flow for 3, 4, 5, 6, 7, 8, 9+ photos centered on focus_idx!
+            let active = focus_idx.min(count - 1);
             let mut list = Vec::new();
 
-            for i in 0..total {
-                if i == mid {
+            for i in 0..count {
+                if i == active {
                     list.push(CardConfig {
                         image_idx: i,
                         w: 320.0,
@@ -934,14 +1049,15 @@ fn render_3d_spatial_scene(
                         pitch_deg: 0.0,
                         roll_deg: 0.0,
                         trans_x: 0.0,
-                        trans_y: 0.0,
-                        trans_z: -35.0,
+                        trans_y: -8.0,
+                        trans_z: -35.0, // Hero card in front
                     });
-                } else if i < mid {
-                    let dist = (mid - i) as f32;
-                    let yaw = (42.0 + (dist - 1.0) * 3.0).min(56.0);
-                    let trans_x = -170.0 - (dist - 1.0) * 115.0;
+                } else if i < active {
+                    let dist = (active - i) as f32;
+                    let yaw = (44.0 + (dist - 1.0) * 3.0).min(56.0);
+                    let trans_x = -240.0 - (dist - 1.0) * 125.0;
                     let trans_z = 25.0 + (dist - 1.0) * 35.0;
+                    let trans_y = dist * 2.0;
                     list.push(CardConfig {
                         image_idx: i,
                         w: 280.0,
@@ -950,14 +1066,15 @@ fn render_3d_spatial_scene(
                         pitch_deg: -1.0,
                         roll_deg: 0.0,
                         trans_x,
-                        trans_y: 2.0,
+                        trans_y,
                         trans_z,
                     });
                 } else {
-                    let dist = (i - mid) as f32;
-                    let yaw = (-42.0 - (dist - 1.0) * 3.0).max(-56.0);
-                    let trans_x = 170.0 + (dist - 1.0) * 115.0;
+                    let dist = (i - active) as f32;
+                    let yaw = (-44.0 - (dist - 1.0) * 3.0).max(-56.0);
+                    let trans_x = 240.0 + (dist - 1.0) * 125.0;
                     let trans_z = 25.0 + (dist - 1.0) * 35.0;
+                    let trans_y = dist * 2.0;
                     list.push(CardConfig {
                         image_idx: i,
                         w: 280.0,
@@ -966,7 +1083,7 @@ fn render_3d_spatial_scene(
                         pitch_deg: -1.0,
                         roll_deg: 0.0,
                         trans_x,
-                        trans_y: 2.0,
+                        trans_y,
                         trans_z,
                     });
                 }
@@ -986,6 +1103,7 @@ fn render_3d_spatial_scene(
         projected_cards.push(ProjectedCard {
             corners: screen_corners,
             z_depth: cfg.trans_z,
+            image_idx: cfg.image_idx,
         });
 
         // Soft ambient drop shadow underneath card
@@ -1001,6 +1119,12 @@ fn render_3d_spatial_scene(
         if *total > images.len() && !projected_cards.is_empty() {
             render_more_photos_badge(buffer, canvas_w, canvas_h, &projected_cards[0].corners, *total - images.len());
         }
+    }
+
+    // Render pagination dots under Cover Flow if multiple images
+    if images.len() > 1 {
+        let active = focus_idx.min(images.len() - 1);
+        render_pagination_dots(buffer, canvas_w, canvas_h, images.len(), active, cx, cy);
     }
 
     projected_cards
@@ -1323,6 +1447,62 @@ fn rasterize_drop_shadow(
                     buffer[p_idx + 1] = 0;
                     buffer[p_idx + 2] = 0;
                     buffer[p_idx + 3] = buffer[p_idx + 3].max(shadow_alpha);
+                }
+            }
+        }
+    }
+}
+
+// ----------------------------------------------------------------------------
+// Cover Flow Pagination Dots
+// ----------------------------------------------------------------------------
+
+fn render_pagination_dots(
+    buffer: &mut [u8],
+    canvas_w: i32,
+    canvas_h: i32,
+    count: usize,
+    active_idx: usize,
+    cx: f32,
+    cy: f32,
+) {
+    let total = count.min(12);
+    if total <= 1 {
+        return;
+    }
+    let dot_spacing = 16.0f32;
+    let start_x = cx - ((total as f32 - 1.0) * dot_spacing) / 2.0;
+    let y_center = cy + 242.0;
+
+    for i in 0..total {
+        let dot_cx = start_x + (i as f32) * dot_spacing;
+        let is_active = i == active_idx;
+        let radius = if is_active { 4.5f32 } else { 3.0f32 };
+        let (b, g, r, a) = if is_active {
+            (0u8, 85u8, 255u8, 240u8) // Bright orange
+        } else {
+            (160u8, 170u8, 185u8, 140u8) // Soft translucent slate
+        };
+
+        let min_x = (dot_cx - radius - 1.0).floor().max(0.0) as i32;
+        let max_x = (dot_cx + radius + 1.0).ceil().min((canvas_w - 1) as f32) as i32;
+        let min_y = (y_center - radius - 1.0).floor().max(0.0) as i32;
+        let max_y = (y_center + radius + 1.0).ceil().min((canvas_h - 1) as f32) as i32;
+
+        for y in min_y..=max_y {
+            let row = (y as usize) * (canvas_w as usize) * 4;
+            let dy = y as f32 - y_center;
+            for x in min_x..=max_x {
+                let dx = x as f32 - dot_cx;
+                let dist = (dx * dx + dy * dy).sqrt();
+                if dist <= radius {
+                    let edge_alpha = (1.0 - (dist - (radius - 1.0)).max(0.0)).min(1.0);
+                    let final_a = (a as f32 * edge_alpha) as u8;
+                    let p_idx = row + (x as usize) * 4;
+                    buffer[p_idx + 0] = b;
+                    buffer[p_idx + 1] = g;
+                    buffer[p_idx + 2] = r;
+                    buffer[p_idx + 3] = buffer[p_idx + 3].max(final_a);
                 }
             }
         }
