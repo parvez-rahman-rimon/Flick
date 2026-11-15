@@ -1763,30 +1763,58 @@ fn rasterize_drop_shadow(
     corners: &[Point2D; 4],
     is_focused: bool,
 ) {
-    let offset_y = if is_focused { 22.0f32 } else { 16.0f32 };
-    let margin = if is_focused { 28.0f32 } else { 20.0f32 };
-    let max_alpha = if is_focused { 115.0f32 } else { 70.0f32 };
+    let offset_y = if is_focused { 8.0f32 } else { 5.0f32 };
+    let blur_radius = if is_focused { 18.0f32 } else { 12.0f32 };
+    let max_alpha = if is_focused { 48.0f32 } else { 32.0f32 }; // Soft, subtle, nearly invisible ambient elevation
 
-    let min_x = (corners.iter().map(|p| p.x).fold(f32::INFINITY, f32::min) - margin).floor().max(0.0) as i32;
-    let max_x = (corners.iter().map(|p| p.x).fold(f32::NEG_INFINITY, f32::max) + margin).ceil().min((canvas_w - 1) as f32) as i32;
-    let min_y = (corners.iter().map(|p| p.y).fold(f32::INFINITY, f32::min) + offset_y - margin).floor().max(0.0) as i32;
-    let max_y = (corners.iter().map(|p| p.y).fold(f32::NEG_INFINITY, f32::max) + offset_y + margin).ceil().min((canvas_h - 1) as f32) as i32;
+    let c_min_x = corners.iter().map(|p| p.x).fold(f32::INFINITY, f32::min);
+    let c_max_x = corners.iter().map(|p| p.x).fold(f32::NEG_INFINITY, f32::max);
+    let c_min_y = corners.iter().map(|p| p.y).fold(f32::INFINITY, f32::min) + offset_y;
+    let c_max_y = corners.iter().map(|p| p.y).fold(f32::NEG_INFINITY, f32::max) + offset_y;
 
-    let center_x = (corners[0].x + corners[1].x + corners[2].x + corners[3].x) / 4.0;
-    let center_y = (corners[0].y + corners[1].y + corners[2].y + corners[3].y) / 4.0 + offset_y;
+    let min_x = (c_min_x - blur_radius).floor().max(0.0) as i32;
+    let max_x = (c_max_x + blur_radius).ceil().min((canvas_w - 1) as f32) as i32;
+    let min_y = (c_min_y - blur_radius).floor().max(0.0) as i32;
+    let max_y = (c_max_y + blur_radius).ceil().min((canvas_h - 1) as f32) as i32;
 
-    let max_dist = ((corners[2].x - center_x).powi(2) + (corners[2].y + offset_y - center_y).powi(2)).sqrt() + margin;
+    let r_corner = 20.0f32;
 
     for y in min_y..=max_y {
+        let y_f = y as f32;
         let row_offset = (y as usize) * (canvas_w as usize) * 4;
-        let dy = y as f32 - center_y;
-        for x in min_x..=max_x {
-            let dx = x as f32 - center_x;
-            let dist = (dx * dx + dy * dy).sqrt();
 
-            if dist < max_dist {
-                let falloff = 1.0 - (dist / max_dist).min(1.0);
-                let shadow_alpha = (falloff * falloff * max_alpha) as u8;
+        let dy = if y_f < c_min_y + r_corner {
+            c_min_y + r_corner - y_f
+        } else if y_f > c_max_y - r_corner {
+            y_f - (c_max_y - r_corner)
+        } else {
+            0.0f32
+        };
+
+        for x in min_x..=max_x {
+            let x_f = x as f32;
+
+            let dx = if x_f < c_min_x + r_corner {
+                c_min_x + r_corner - x_f
+            } else if x_f > c_max_x - r_corner {
+                x_f - (c_max_x - r_corner)
+            } else {
+                0.0f32
+            };
+
+            let dist = if dx > 0.0 && dy > 0.0 {
+                (dx * dx + dy * dy).sqrt() - r_corner
+            } else if dx > 0.0 {
+                dx - r_corner
+            } else if dy > 0.0 {
+                dy - r_corner
+            } else {
+                -1.0f32 // Inside card
+            };
+
+            if dist > 0.0 && dist <= blur_radius {
+                let norm = 1.0 - (dist / blur_radius);
+                let shadow_alpha = (norm * norm * max_alpha) as u8;
 
                 let p_idx = row_offset + (x as usize) * 4;
                 if buffer[p_idx + 3] < 255 {
