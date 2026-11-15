@@ -1,6 +1,6 @@
 use crate::config::{
     get_config, get_lan_ip, is_autostart_enabled, set_autostart_enabled, set_clipboard_mode,
-    set_winv_history_stack,
+    set_sound_theme, set_winv_history_stack,
 };
 use crate::gui;
 use std::ffi::OsStr;
@@ -28,6 +28,9 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 pub const WM_TRAY_CALLBACK: u32 = WM_USER + 1;
 pub const WM_IPC_OPEN_DASHBOARD: u32 = WM_USER + 101;
 pub const WM_IPC_OPEN_PAIR: u32 = WM_USER + 102;
+pub const WM_IPC_TEST_LANDING: u32 = WM_USER + 103;
+pub const WM_IPC_TEST_BATCH: u32 = WM_USER + 104;
+pub const WM_IPC_SET_SOUND: u32 = WM_USER + 105;
 
 const ID_TRAY_OPEN_DASHBOARD: usize = 1001;
 const ID_TRAY_PAIR_QR: usize = 1002;
@@ -40,6 +43,12 @@ const ID_TRAY_OPEN_DOWNLOADS: usize = 1020;
 const ID_TRAY_CHANGE_DOWNLOADS: usize = 1021;
 const ID_TRAY_TOGGLE_AUTOSTART: usize = 1022;
 const ID_TRAY_TOGGLE_WINV_STACK: usize = 1023;
+const ID_TRAY_TEST_LANDING: usize = 1024;
+const ID_TRAY_TEST_BATCH: usize = 1025;
+const ID_TRAY_SOUND_GLASS: usize = 1040;
+const ID_TRAY_SOUND_SCIFI: usize = 1041;
+const ID_TRAY_SOUND_CINEMATIC: usize = 1042;
+const ID_TRAY_SOUND_STUDIO: usize = 1043;
 const ID_TRAY_QUIT: usize = 1030;
 
 static TRAY_HWND: AtomicPtr<core::ffi::c_void> = AtomicPtr::new(std::ptr::null_mut());
@@ -109,7 +118,8 @@ pub fn run_tray_message_loop(start_minimized: bool, start_pair: bool) {
             hIconSm: app_icon,
         };
 
-        RegisterClassExW(&wnd_class);
+        let atom = RegisterClassExW(&wnd_class);
+        crate::log_boot(&format!("RegisterClassExW atom: {}", atom));
 
         let hwnd = CreateWindowExW(
             0,
@@ -127,9 +137,11 @@ pub fn run_tray_message_loop(start_minimized: bool, start_pair: bool) {
         );
 
         if hwnd.is_null() {
-            eprintln!("[Tray] Failed to create tray message window");
+            let err = windows_sys::Win32::Foundation::GetLastError();
+            crate::log_boot(&format!("[Tray] Failed to create tray message window, err: {}", err));
             return;
         }
+        crate::log_boot("Tray message window created successfully");
 
         TRAY_HWND.store(hwnd as _, Ordering::SeqCst);
 
@@ -161,12 +173,14 @@ pub fn run_tray_message_loop(start_minimized: bool, start_pair: bool) {
             gui::open_or_show_dashboard(start_pair);
         }
 
+        crate::log_boot("Entering tray message pump...");
         // 4. Standard Win32 Message Pump
         let mut msg = std::mem::zeroed();
         while GetMessageW(&mut msg, 0 as HWND, 0, 0) > 0 {
             TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
+        crate::log_boot("Exited tray message pump!");
 
         // Clean up tray icon on exit
         Shell_NotifyIconW(NIM_DELETE, &nid);
@@ -200,6 +214,30 @@ unsafe extern "system" fn tray_wnd_proc(
             0
         }
 
+        WM_IPC_TEST_LANDING => {
+            trigger_sample_landing();
+            0
+        }
+
+        WM_IPC_TEST_BATCH => {
+            crate::log_boot("Tray received WM_IPC_TEST_BATCH");
+            trigger_sample_batch_landing();
+            0
+        }
+
+        WM_IPC_SET_SOUND => {
+            let code = match wparam {
+                1 => "scifi",
+                2 => "cinematic",
+                3 => "studio",
+                _ => "glass",
+            };
+            crate::log_boot(&format!("Tray received WM_IPC_SET_SOUND: {} -> {}", wparam, code));
+            set_sound_theme(code);
+            crate::http_server::preview_sound_theme(code);
+            0
+        }
+
         WM_COMMAND => {
             let cmd = (wparam & 0xFFFF) as usize;
             match cmd {
@@ -220,6 +258,22 @@ unsafe extern "system" fn tray_wnd_proc(
                 }
                 ID_TRAY_MODE_FILE => {
                     set_clipboard_mode("FORCE_FILE");
+                }
+                ID_TRAY_SOUND_GLASS => {
+                    set_sound_theme("glass");
+                    crate::http_server::preview_sound_theme("glass");
+                }
+                ID_TRAY_SOUND_SCIFI => {
+                    set_sound_theme("scifi");
+                    crate::http_server::preview_sound_theme("scifi");
+                }
+                ID_TRAY_SOUND_CINEMATIC => {
+                    set_sound_theme("cinematic");
+                    crate::http_server::preview_sound_theme("cinematic");
+                }
+                ID_TRAY_SOUND_STUDIO => {
+                    set_sound_theme("studio");
+                    crate::http_server::preview_sound_theme("studio");
                 }
                 ID_TRAY_OPEN_DOWNLOADS => {
                     let cfg = get_config();
@@ -254,6 +308,12 @@ unsafe extern "system" fn tray_wnd_proc(
                 ID_TRAY_TOGGLE_WINV_STACK => {
                     let cfg = get_config();
                     set_winv_history_stack(!cfg.winv_history_stack);
+                }
+                ID_TRAY_TEST_LANDING => {
+                    trigger_sample_landing();
+                }
+                ID_TRAY_TEST_BATCH => {
+                    trigger_sample_batch_landing();
                 }
                 ID_TRAY_QUIT => {
                     gui::close_dashboard_if_open();
@@ -318,12 +378,46 @@ unsafe fn show_tray_menu(hwnd: HWND) {
         .collect();
     AppendMenuW(menu, MF_POPUP, mode_menu as usize, clip_str.as_ptr());
 
+    // Sound Theme Submenu
+    let sound_menu = CreatePopupMenu();
+    let sound_themes = [
+        ("💎 Crystal Glass (Apple Vision style)", "glass", ID_TRAY_SOUND_GLASS),
+        ("⚡ Cyber HUD (Tony Stark style)", "scifi", ID_TRAY_SOUND_SCIFI),
+        ("🎬 Cinematic Bloom", "cinematic", ID_TRAY_SOUND_CINEMATIC),
+        ("🎙️ Studio Minimalist", "studio", ID_TRAY_SOUND_STUDIO),
+    ];
+
+    for (label, code, id) in sound_themes {
+        let is_active = cfg.sound_theme == code;
+        let flags = MF_STRING | if is_active { MF_CHECKED } else { MF_UNCHECKED };
+        let label_wide: Vec<u16> = OsStr::new(label).encode_wide().chain(Some(0)).collect();
+        AppendMenuW(sound_menu, flags, id, label_wide.as_ptr());
+    }
+
+    let sound_str: Vec<u16> = OsStr::new("🎵 Arrival Sound Theme")
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+    AppendMenuW(menu, MF_POPUP, sound_menu as usize, sound_str.as_ptr());
+
     let winv_flags = MF_STRING | if cfg.winv_history_stack { MF_CHECKED } else { MF_UNCHECKED };
     let winv_str: Vec<u16> = OsStr::new("Stack Images in Win+V History")
         .encode_wide()
         .chain(Some(0))
         .collect();
     AppendMenuW(menu, winv_flags, ID_TRAY_TOGGLE_WINV_STACK, winv_str.as_ptr());
+
+    let test_single_str: Vec<u16> = OsStr::new("✨ Test Single Spatial Card")
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+    AppendMenuW(menu, MF_STRING, ID_TRAY_TEST_LANDING, test_single_str.as_ptr());
+
+    let test_batch_str: Vec<u16> = OsStr::new("✨ Test Multiple (Batch) Spatial Card")
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+    AppendMenuW(menu, MF_STRING, ID_TRAY_TEST_BATCH, test_batch_str.as_ptr());
 
     let open_dl_str: Vec<u16> = OsStr::new("Open Saved Files Folder")
         .encode_wide()
@@ -371,4 +465,54 @@ unsafe fn show_tray_menu(hwnd: HWND) {
     PostMessageW(hwnd, WM_NULL, 0, 0);
 
     DestroyMenu(menu);
+}
+
+pub fn trigger_sample_landing() {
+    let mut chosen_path = std::path::PathBuf::from("docs/screenshots/rx1-dashboard.png");
+    if let Some(user_dirs) = std::env::var_os("USERPROFILE") {
+        let p = std::path::Path::new(&user_dirs)
+            .join("Downloads")
+            .join("Screenshot_20261114-205317_1794738244271.png");
+        if p.exists() {
+            chosen_path = p;
+        }
+    }
+    if !chosen_path.exists() {
+        chosen_path = std::path::PathBuf::from("flick.ico");
+    }
+    crate::landing::show_landing_files(vec![chosen_path]);
+}
+
+pub fn trigger_sample_batch_landing() {
+    let mut batch = Vec::new();
+    if let Some(user_dirs) = std::env::var_os("USERPROFILE") {
+        let dl = std::path::Path::new(&user_dirs).join("Downloads");
+        let candidates = [
+            "Screenshot_20261115-162915.png",
+            "Screenshot_20261115-162829.png",
+            "Screenshot_20261114-205317_1794738244271.png",
+            "Screenshot_20261114-205317.png",
+        ];
+        for c in candidates {
+            let p = dl.join(c);
+            if p.exists() {
+                batch.push(p);
+            }
+            if batch.len() >= 3 {
+                break;
+            }
+        }
+    }
+
+    if batch.len() < 2 {
+        let fallback = std::path::PathBuf::from("docs/screenshots/rx1-dashboard.png");
+        if fallback.exists() {
+            batch.push(fallback.clone());
+            batch.push(fallback);
+        }
+    }
+
+    if !batch.is_empty() {
+        crate::landing::show_landing_files(batch);
+    }
 }

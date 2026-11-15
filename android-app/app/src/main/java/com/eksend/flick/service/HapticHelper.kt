@@ -60,8 +60,36 @@ object HapticHelper {
     }
 
     fun triggerQuickTick(context: Context) {
-        // Immediate tactile feedback on share sheet tap (35ms clean pulse)
-        performVibration(context, longArrayOf(0, 35), intArrayOf(0, 180))
+        triggerSpatialFlick(context)
+    }
+
+    fun triggerSpatialFlick(context: Context) {
+        val prefs = FlickPreferences(context)
+        if (!prefs.isHapticFeedbackEnabled) return
+
+        try {
+            val vibrator = getVibrator(context) ?: return
+            if (!vibrator.hasVibrator()) return
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && vibrator.areAllPrimitivesSupported(
+                    VibrationEffect.Composition.PRIMITIVE_QUICK_RISE,
+                    VibrationEffect.Composition.PRIMITIVE_TICK
+                )) {
+                val comp = VibrationEffect.startComposition()
+                    .addPrimitive(VibrationEffect.Composition.PRIMITIVE_QUICK_RISE, 0.75f)
+                    .addPrimitive(VibrationEffect.Composition.PRIMITIVE_TICK, 1.0f)
+                    .compose()
+                vibrator.vibrate(comp)
+            } else {
+                performVibration(
+                    context,
+                    longArrayOf(0, 15, 20, 30),
+                    intArrayOf(0, 110, 190, 255)
+                )
+            }
+        } catch (_: Exception) {
+            performVibration(context, longArrayOf(0, 35), intArrayOf(0, 180))
+        }
     }
 
     fun triggerSuccess(context: Context, customToast: String? = "⚡ Copied to PC Clipboard") {

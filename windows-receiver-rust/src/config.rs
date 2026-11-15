@@ -38,8 +38,14 @@ pub struct FlickConfig {
     pub play_sound: bool,
     #[serde(default = "default_winv_history_stack")]
     pub winv_history_stack: bool,
+    #[serde(default = "default_sound_theme")]
+    pub sound_theme: String,
     #[serde(default)]
     pub paired_devices: Vec<PairedDevice>,
+}
+
+fn default_sound_theme() -> String {
+    "glass".to_string()
 }
 
 fn default_http_port() -> u16 {
@@ -115,6 +121,7 @@ fn init_default_config() -> FlickConfig {
         clipboard_mode: "SMART_MULTI".to_string(),
         play_sound: true,
         winv_history_stack: true,
+        sound_theme: "glass".to_string(),
         paired_devices: Vec::new(),
     }
 }
@@ -331,6 +338,12 @@ pub fn add_or_update_paired_device(
     }
 
     save_config(&cfg);
+}
+
+pub fn set_sound_theme(theme: &str) {
+    let mut cfg = get_config();
+    cfg.sound_theme = theme.to_string();
+    let _ = save_config(&cfg);
 }
 
 pub fn remove_paired_device(client_id: &str) {

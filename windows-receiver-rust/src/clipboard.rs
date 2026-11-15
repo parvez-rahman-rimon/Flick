@@ -87,7 +87,7 @@ struct DropFilesHeader {
     f_wide: i32,  // 1 (TRUE -> UTF-16LE)
 }
 
-fn build_hdrop_bytes(paths: &[&Path]) -> Vec<u8> {
+pub fn build_hdrop_bytes(paths: &[&Path]) -> Vec<u8> {
     let mut bytes = Vec::new();
     let header = DropFilesHeader {
         p_files: std::mem::size_of::<DropFilesHeader>() as u32,

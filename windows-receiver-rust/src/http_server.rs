@@ -19,6 +19,21 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+pub fn log_http(msg: &str) {
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(
+            std::path::Path::new(&std::env::var("USERPROFILE").unwrap_or_default())
+                .join(".flick")
+                .join("http.log"),
+        )
+    {
+        use std::io::Write;
+        let _ = writeln!(f, "[{}]", msg);
+    }
+}
 use subtle::ConstantTimeEq;
 use unicode_normalization::UnicodeNormalization;
 use uuid::Uuid;
@@ -52,68 +67,22 @@ const RESERVED_NAMES: &[&str] = &[
 ];
 
 // ----------------------------------------------------------------------------
-// Synthesized Dual-Tone C5 -> G5 PCM Chime
+// High-Fidelity Spatial Audio Engine
+// Professional CC0 1.0 Universal Acoustic Drop, Glass & HUD Themes
 // ----------------------------------------------------------------------------
 
-static CHIME_WAV: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
+static SOUND_GLASS: &[u8] = include_bytes!("../assets/sounds/glass_receive.wav");
+static SOUND_SCIFI: &[u8] = include_bytes!("../assets/sounds/scifi_receive.wav");
+static SOUND_CINEMATIC: &[u8] = include_bytes!("../assets/sounds/cinematic_receive.wav");
+static SOUND_STUDIO: &[u8] = include_bytes!("../assets/sounds/studio_receive.wav");
 
-fn get_chime_wav() -> &'static [u8] {
-    CHIME_WAV.get_or_init(|| {
-        let sample_rate = 44100u32;
-        let c5_freq = 523.25f32;
-        let g5_freq = 783.99f32;
-        let c5_dur = 0.080f32;
-        let g5_dur = 0.120f32;
-        let total_dur = c5_dur + g5_dur;
-        let total_samples = (total_dur * sample_rate as f32) as usize;
-
-        let mut pcm = Vec::with_capacity(total_samples);
-        let pi = std::f32::consts::PI;
-
-        for i in 0..total_samples {
-            let t = i as f32 / sample_rate as f32;
-            let (freq, seg_t, seg_dur) = if t < c5_dur {
-                (c5_freq, t, c5_dur)
-            } else {
-                (g5_freq, t - c5_dur, g5_dur)
-            };
-
-            // Envelope: 5ms attack, 15ms release
-            let attack = (seg_t / 0.005).min(1.0);
-            let release = ((seg_dur - seg_t) / 0.015).min(1.0).max(0.0);
-            let env = attack * release;
-
-            let wave = (2.0 * pi * freq * seg_t).sin();
-            let sample_val = (wave * env * 18000.0) as i16;
-            pcm.push(sample_val);
-        }
-
-        let num_channels = 1u16;
-        let bits_per_sample = 16u16;
-        let byte_rate = sample_rate * num_channels as u32 * (bits_per_sample as u32 / 8);
-        let block_align = num_channels * (bits_per_sample / 8);
-        let data_size = pcm.len() as u32 * 2;
-        let riff_size = 36 + data_size;
-
-        let mut wav = Vec::with_capacity(44 + data_size as usize);
-        wav.extend_from_slice(b"RIFF");
-        wav.extend_from_slice(&riff_size.to_le_bytes());
-        wav.extend_from_slice(b"WAVE");
-        wav.extend_from_slice(b"fmt ");
-        wav.extend_from_slice(&16u32.to_le_bytes()); // subchunk1 size
-        wav.extend_from_slice(&1u16.to_le_bytes()); // PCM format
-        wav.extend_from_slice(&num_channels.to_le_bytes());
-        wav.extend_from_slice(&sample_rate.to_le_bytes());
-        wav.extend_from_slice(&byte_rate.to_le_bytes());
-        wav.extend_from_slice(&block_align.to_le_bytes());
-        wav.extend_from_slice(&bits_per_sample.to_le_bytes());
-        wav.extend_from_slice(b"data");
-        wav.extend_from_slice(&data_size.to_le_bytes());
-        for sample in pcm {
-            wav.extend_from_slice(&sample.to_le_bytes());
-        }
-        wav
-    })
+pub fn get_sound_bytes(theme: &str) -> &'static [u8] {
+    match theme {
+        "scifi" => SOUND_SCIFI,
+        "cinematic" => SOUND_CINEMATIC,
+        "studio" => SOUND_STUDIO,
+        _ => SOUND_GLASS,
+    }
 }
 
 pub fn play_arrival_chime() {
@@ -121,7 +90,18 @@ pub fn play_arrival_chime() {
     if !cfg.play_sound {
         return;
     }
-    let wav = get_chime_wav();
+    let wav = get_sound_bytes(&cfg.sound_theme);
+    unsafe {
+        PlaySoundW(
+            wav.as_ptr() as *const u16,
+            std::ptr::null_mut(),
+            SND_MEMORY | SND_ASYNC | SND_NODEFAULT,
+        );
+    }
+}
+
+pub fn preview_sound_theme(theme: &str) {
+    let wav = get_sound_bytes(theme);
     unsafe {
         PlaySoundW(
             wav.as_ptr() as *const u16,
@@ -348,6 +328,7 @@ fn handle_connection(
     server_config: Arc<rustls::ServerConfig>,
     _creds: Arc<PcCredentials>,
 ) {
+    log_http(&format!("Incoming TCP conn from {}", peer_ip));
     let _ = stream.set_nonblocking(false);
     let _ = stream.set_read_timeout(Some(Duration::from_secs(30)));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(30)));
@@ -416,7 +397,7 @@ fn handle_connection(
     }
     let method = parts[0];
     let path = parts[1];
-    eprintln!("[HTTPS] Request: {} {}", method, path);
+    log_http(&format!("HTTP Request: {} {} from {}", method, path, peer_ip));
 
     let mut headers = HashMap::new();
     for l in lines {
@@ -917,6 +898,8 @@ fn handle_upload<S: Read + Write>(
                 batch_mode.as_str()
             };
             applied_formats = clipboard::planned_clipboard_formats(&batch_paths, effective_mode);
+            log_http(&format!("Batch complete: {} files -> show_landing_files", total_files));
+            crate::landing::show_landing_files(batch_paths.clone());
             clipboard::enqueue_files_delivery(
                 batch_paths,
                 effective_mode.to_string(),
@@ -941,6 +924,8 @@ fn handle_upload<S: Read + Write>(
         let effective_mode = if is_quarantined { "FORCE_PATH" } else { mode.as_str() };
         let single_paths = vec![final_path.clone()];
         applied_formats = clipboard::planned_clipboard_formats(&single_paths, effective_mode);
+        log_http(&format!("Single file complete: {:?} -> show_landing_files", single_paths));
+        crate::landing::show_landing_files(single_paths.clone());
         clipboard::enqueue_files_delivery(
             single_paths,
             effective_mode.to_string(),
@@ -997,6 +982,7 @@ fn handle_clipboard<S: Read + Write>(
     };
 
     clipboard::enqueue_text_delivery(text.to_string());
+    crate::landing::show_landing_text(text);
     play_arrival_chime();
     crate::tray::show_tray_notification("Flick Clipboard", &format!("Text copied to clipboard ({} chars)", text.chars().count()));
 

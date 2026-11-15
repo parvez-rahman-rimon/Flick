@@ -6,6 +6,7 @@ mod config;
 mod crypto;
 mod gui;
 mod http_server;
+pub mod landing;
 mod tray;
 
 use std::ffi::OsStr;
@@ -16,7 +17,32 @@ use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, SetLastError, ER
 use windows_sys::Win32::System::Threading::CreateMutexW;
 use windows_sys::Win32::UI::WindowsAndMessaging::{FindWindowW, PostMessageW};
 
+pub fn log_boot(step: &str) {
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(
+            std::path::Path::new(&std::env::var("USERPROFILE").unwrap_or_default())
+                .join(".flick")
+                .join("boot.log"),
+        )
+    {
+        use std::io::Write;
+        let _ = writeln!(f, "[{}]", step);
+    }
+}
+
+const LOCAL_IPC_PORT: u16 = 45459;
+
+fn send_local_ipc(cmd: &str) {
+    if let Ok(socket) = std::net::UdpSocket::bind("127.0.0.1:0") {
+        let _ = socket.send_to(cmd.as_bytes(), ("127.0.0.1", LOCAL_IPC_PORT));
+    }
+}
+
 fn main() {
+    log_boot("--- Process Invocation ---");
+    log_boot("0. Panic hook setup");
     // 0. Global Panic Hook: Log panic to ~/.flick/panic.log and show Win32 MessageBox
     std::panic::set_hook(Box::new(|info| {
         let msg = format!("Flick Receiver encountered an unexpected error:\n{}\n", info);
@@ -47,7 +73,29 @@ fn main() {
     let already_running = h_mutex.is_null() || last_err == ERROR_ALREADY_EXISTS;
 
     if already_running {
-        // Zero-Bloat Win32 IPC: Wake up existing instance via FindWindowW + PostMessageW
+        log_boot("Exit: Already running detected!");
+        let sound_arg = std::env::args().position(|a| a == "--sound" || a == "-s")
+            .and_then(|idx| std::env::args().nth(idx + 1));
+
+        if let Some(ref snd) = sound_arg {
+            let cmd = format!("SOUND:{}", snd.to_lowercase());
+            send_local_ipc(&cmd);
+        } else {
+            let is_pair = std::env::args().any(|a| a == "--pair" || a == "-p");
+            let is_test_landing = std::env::args().any(|a| a == "--test-landing");
+            let is_test_batch = std::env::args().any(|a| a == "--test-batch" || a == "-b");
+            if is_test_batch {
+                send_local_ipc("BATCH");
+            } else if is_test_landing {
+                send_local_ipc("LANDING");
+            } else if is_pair {
+                send_local_ipc("PAIR");
+            } else {
+                send_local_ipc("DASHBOARD");
+            }
+        }
+
+        // Also try Win32 PostMessage as secondary fallback if on same desktop
         let tray_class: Vec<u16> = OsStr::new("FlickTrayWindowClass")
             .encode_wide()
             .chain(Some(0))
@@ -62,27 +110,34 @@ fn main() {
             hwnd = unsafe { FindWindowW(dash_class.as_ptr(), std::ptr::null()) };
         }
 
-        // Retry for up to 1 second in case primary instance is actively initializing
-        for _ in 0..5 {
-            if !hwnd.is_null() {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(150));
-            hwnd = unsafe { FindWindowW(tray_class.as_ptr(), std::ptr::null()) };
-            if hwnd.is_null() {
-                hwnd = unsafe { FindWindowW(dash_class.as_ptr(), std::ptr::null()) };
-            }
-        }
-
         if !hwnd.is_null() {
-            let is_pair = std::env::args().any(|a| a == "--pair" || a == "-p");
-            let msg = if is_pair {
-                tray::WM_IPC_OPEN_PAIR
+            log_boot(&format!("Found window hwnd: {:?}, args: {:?}", hwnd, std::env::args().collect::<Vec<_>>()));
+            if let Some(snd) = sound_arg {
+                let code = match snd.to_lowercase().as_str() {
+                    "scifi" => 1,
+                    "cinematic" => 2,
+                    "studio" => 3,
+                    _ => 0, // glass
+                };
+                unsafe {
+                    PostMessageW(hwnd, tray::WM_IPC_SET_SOUND, code, 0);
+                }
             } else {
-                tray::WM_IPC_OPEN_DASHBOARD
-            };
-            unsafe {
-                PostMessageW(hwnd, msg, 0, 0);
+                let is_pair = std::env::args().any(|a| a == "--pair" || a == "-p");
+                let is_test_landing = std::env::args().any(|a| a == "--test-landing");
+                let is_test_batch = std::env::args().any(|a| a == "--test-batch" || a == "-b");
+                let msg = if is_test_batch {
+                    tray::WM_IPC_TEST_BATCH
+                } else if is_test_landing {
+                    tray::WM_IPC_TEST_LANDING
+                } else if is_pair {
+                    tray::WM_IPC_OPEN_PAIR
+                } else {
+                    tray::WM_IPC_OPEN_DASHBOARD
+                };
+                unsafe {
+                    PostMessageW(hwnd, msg, 0, 0);
+                }
             }
         }
 
@@ -111,16 +166,53 @@ fn main() {
         }
     };
 
-    // 3. Start Background Daemons: UDP Beacon & mTLS 1.3 HTTP Server
+    log_boot("Starting daemons...");
+    // 3. Start Background Daemons: UDP Beacon, mTLS 1.3 Server & Local IPC Listener
     let _beacon_handle = beacon::start_discovery_beacon(cfg.udp_port);
     let _server_handle = http_server::start_http_receiver(cfg.http_port, creds, server_config);
+
+    let _ipc_handle = std::thread::Builder::new()
+        .name("flick-local-ipc".to_string())
+        .spawn(move || {
+            if let Ok(socket) = std::net::UdpSocket::bind(("127.0.0.1", LOCAL_IPC_PORT)) {
+                let mut buf = [0u8; 256];
+                while let Ok((amt, _)) = socket.recv_from(&mut buf) {
+                    if let Ok(cmd) = std::str::from_utf8(&buf[..amt]) {
+                        log_boot(&format!("Local IPC received command: {}", cmd));
+                        match cmd {
+                            "BATCH" => tray::trigger_sample_batch_landing(),
+                            "LANDING" => tray::trigger_sample_landing(),
+                            "DASHBOARD" => gui::open_or_show_dashboard(false),
+                            "PAIR" => gui::open_or_show_dashboard(true),
+                            c if c.starts_with("SOUND:") => {
+                                let theme = &c[6..];
+                                config::set_sound_theme(theme);
+                                http_server::preview_sound_theme(theme);
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        });
+
+    log_boot("Daemons started, starting tray loop...");
 
     // 4. Parse Startup Flags
     let is_pair = std::env::args().any(|a| a == "--pair" || a == "-p");
     let is_minimized = std::env::args().any(|a| a == "--minimized" || a == "-m");
+    let is_test_landing = std::env::args().any(|a| a == "--test-landing");
+    let is_test_batch = std::env::args().any(|a| a == "--test-batch" || a == "-b");
+
+    if is_test_batch {
+        tray::trigger_sample_batch_landing();
+    } else if is_test_landing {
+        tray::trigger_sample_landing();
+    }
 
     // 5. Enter Win32 Tray & GDI Message Loop on Main Thread
     tray::run_tray_message_loop(is_minimized, is_pair);
+    log_boot("Tray loop exited! Process ending.");
 
     // Clean up mutex on shutdown
     if !h_mutex.is_null() {

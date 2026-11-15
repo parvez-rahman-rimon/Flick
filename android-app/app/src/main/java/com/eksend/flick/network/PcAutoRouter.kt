@@ -29,6 +29,14 @@ object PcAutoRouter {
         // Step 2: Authenticated UDP Discovery Beacon Fallback (<= 2200ms)
         val prefs = FlickPreferences(context)
         if (prefs.isAutoUpdateIpEnabled) {
+            val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
+            val multicastLock = try {
+                wifiManager?.createMulticastLock("FlickAutoRouterLock")?.apply {
+                    setReferenceCounted(false)
+                    acquire()
+                }
+            } catch (_: Exception) { null }
+
             var discoveredIp: String? = null
             var socket: DatagramSocket? = null
             try {
@@ -90,6 +98,9 @@ object PcAutoRouter {
             } catch (_: Exception) {
             } finally {
                 socket?.close()
+                try {
+                    multicastLock?.let { if (it.isHeld) it.release() }
+                } catch (_: Exception) {}
             }
 
             if (discoveredIp != null) {
