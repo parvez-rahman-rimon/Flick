@@ -26,10 +26,10 @@ use windows_sys::Win32::Foundation::{
 };
 use windows_sys::Win32::Graphics::Gdi::{
     CreateCompatibleDC, CreateDIBSection, CreateFontW, DeleteDC, DeleteObject, DrawTextW,
-    SelectObject, SetBkMode, SetTextColor, AC_SRC_ALPHA, AC_SRC_OVER, BITMAPINFO,
-    BITMAPINFOHEADER, BI_RGB, BLENDFUNCTION, DIB_RGB_COLORS, DT_CENTER, DT_END_ELLIPSIS,
-    DT_LEFT, DT_NOPREFIX, DT_RIGHT, DT_SINGLELINE, DT_TOP, DT_VCENTER, DT_WORDBREAK, HBITMAP,
-    HDC, HFONT, TRANSPARENT,
+    GetDIBits, GetObjectW, SelectObject, SetBkMode, SetTextColor, AC_SRC_ALPHA, AC_SRC_OVER,
+    BITMAP, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, BLENDFUNCTION, DIB_RGB_COLORS, DT_CENTER,
+    DT_END_ELLIPSIS, DT_LEFT, DT_NOPREFIX, DT_RIGHT, DT_SINGLELINE, DT_TOP, DT_VCENTER,
+    DT_WORDBREAK, HBITMAP, HDC, HFONT, TRANSPARENT,
 };
 use windows_sys::Win32::System::Com::{
     CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED, FORMATETC, STGMEDIUM,
@@ -45,7 +45,7 @@ use windows_sys::Win32::System::Ole::{
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, ReleaseCapture, VK_CONTROL, VK_ESCAPE, VK_LEFT, VK_RETURN, VK_RIGHT,
 };
-use windows_sys::Win32::UI::Shell::ShellExecuteW;
+use windows_sys::Win32::UI::Shell::{SHCreateItemFromParsingName, ShellExecuteW};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, GetSystemMetrics,
     GetWindowRect, KillTimer, LoadCursorW, PostMessageW, PostQuitMessage, RegisterClassExW,
@@ -150,10 +150,18 @@ struct PendingPayload {
     images: Vec<LoadedImage>,
 }
 
-struct LoadedImage {
-    w: u32,
-    h: u32,
-    bgra: Vec<u8>,
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum CardVisualType {
+    Photo,
+    Pdf,
+    Video,
+}
+
+pub struct LoadedImage {
+    pub w: u32,
+    pub h: u32,
+    pub bgra: Vec<u8>,
+    pub visual_type: CardVisualType,
 }
 
 static LANDING_HWND: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
@@ -163,6 +171,22 @@ static ACTIVE_STATE: Mutex<Option<Arc<Mutex<LandingState>>>> = Mutex::new(None);
 // ----------------------------------------------------------------------------
 // Public Entry Points
 // ----------------------------------------------------------------------------
+
+fn is_visual_ext(ext: &str) -> bool {
+    matches!(
+        ext,
+        "png" | "jpg" | "jpeg" | "webp" | "bmp" | "gif" | "pdf" | "mp4" | "mkv" | "mov" | "avi" | "webm"
+    )
+}
+
+fn get_file_visual_type(ext: &str) -> Option<CardVisualType> {
+    match ext {
+        "png" | "jpg" | "jpeg" | "webp" | "bmp" | "gif" => Some(CardVisualType::Photo),
+        "pdf" => Some(CardVisualType::Pdf),
+        "mp4" | "mkv" | "mov" | "avi" | "webm" => Some(CardVisualType::Video),
+        _ => None,
+    }
+}
 
 pub fn show_landing_files(paths: Vec<PathBuf>) {
     if paths.is_empty() {
@@ -177,7 +201,7 @@ pub fn show_landing_files(paths: Vec<PathBuf>) {
         .unwrap_or_else(|| "file".to_string());
 
     let mut total_bytes = 0u64;
-    let mut image_count = 0usize;
+    let mut visual_count = 0usize;
 
     for p in &paths {
         if let Ok(meta) = std::fs::metadata(p) {
@@ -188,12 +212,12 @@ pub fn show_landing_files(paths: Vec<PathBuf>) {
             .and_then(|e| e.to_str())
             .unwrap_or("")
             .to_lowercase();
-        if matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "webp" | "bmp" | "gif") {
-            image_count += 1;
+        if is_visual_ext(&ext) {
+            visual_count += 1;
         }
     }
 
-    let is_image = image_count == count;
+    let is_image = visual_count > 0;
     let item = LandingItem::Files {
         paths,
         primary_name,
@@ -225,6 +249,255 @@ pub fn show_landing_text(text: &str) {
 }
 
 // ----------------------------------------------------------------------------
+// Windows Shell Thumbnail Factory & Image Loading Engine
+// ----------------------------------------------------------------------------
+
+#[repr(C)]
+#[allow(non_snake_case)]
+struct IShellItemImageFactoryVtbl {
+    pub QueryInterface: unsafe extern "system" fn(this: *mut c_void, riid: *const GUID, ppv: *mut *mut c_void) -> HRESULT,
+    pub AddRef: unsafe extern "system" fn(this: *mut c_void) -> u32,
+    pub Release: unsafe extern "system" fn(this: *mut c_void) -> u32,
+    pub GetImage: unsafe extern "system" fn(this: *mut c_void, size: SIZE, flags: u32, phbm: *mut HBITMAP) -> HRESULT,
+}
+
+#[repr(C)]
+#[allow(non_snake_case)]
+struct IShellItemImageFactory {
+    pub lpVtbl: *const IShellItemImageFactoryVtbl,
+}
+
+// Windows Shell IShellItemImageFactory: {bcc18b79-ba16-442f-80c4-8a59c30c463b}
+const IID_ISHELLITEMIMAGEFACTORY: GUID = GUID {
+    data1: 0xbcc18b79,
+    data2: 0xba16,
+    data3: 0x442f,
+    data4: [0x80, 0xc4, 0x8a, 0x59, 0xc3, 0x0c, 0x46, 0x3b],
+};
+
+const SIIGBF_BIGGERSIZEOK: u32 = 0x01;
+const SIIGBF_SCALEUP: u32 = 0x100;
+
+fn extract_shell_thumbnail(
+    path: &Path,
+    target_w: i32,
+    target_h: i32,
+    visual_type: CardVisualType,
+) -> Option<LoadedImage> {
+    unsafe {
+        let hr_init = CoInitializeEx(std::ptr::null_mut(), COINIT_APARTMENTTHREADED as _);
+        let should_uninit = hr_init >= 0;
+
+        let path_wide: Vec<u16> = OsStr::new(path.as_os_str())
+            .encode_wide()
+            .chain(Some(0))
+            .collect();
+        let mut factory_ptr: *mut c_void = std::ptr::null_mut();
+
+        let hr = SHCreateItemFromParsingName(
+            path_wide.as_ptr(),
+            std::ptr::null_mut(),
+            &IID_ISHELLITEMIMAGEFACTORY,
+            &mut factory_ptr,
+        );
+
+        if hr != S_OK || factory_ptr.is_null() {
+            crate::http_server::log_http(&format!("SHCreateItemFromParsingName failed for {:?}: hr=0x{:X}", path, hr as u32));
+            if should_uninit {
+                CoUninitialize();
+            }
+            return None;
+        }
+
+        let factory = factory_ptr as *mut IShellItemImageFactory;
+        let size = SIZE {
+            cx: target_w,
+            cy: target_h,
+        };
+        let flags = SIIGBF_BIGGERSIZEOK | SIIGBF_SCALEUP;
+        let mut hbm: HBITMAP = 0 as _;
+
+        let hr_img = ((*(*factory).lpVtbl).GetImage)(factory_ptr, size, flags, &mut hbm);
+        ((*(*factory).lpVtbl).Release)(factory_ptr);
+
+        if should_uninit {
+            CoUninitialize();
+        }
+
+        if hr_img != S_OK || hbm.is_null() {
+            crate::http_server::log_http(&format!("GetImage failed for {:?}: hr=0x{:X}", path, hr_img as u32));
+            return None;
+        }
+
+        let mut bm: BITMAP = std::mem::zeroed();
+        let ret = GetObjectW(
+            hbm as _,
+            std::mem::size_of::<BITMAP>() as i32,
+            &mut bm as *mut _ as *mut c_void,
+        );
+        if ret == 0 || bm.bmWidth <= 0 || bm.bmHeight <= 0 {
+            DeleteObject(hbm as _);
+            return None;
+        }
+
+        let w = bm.bmWidth as u32;
+        let h = bm.bmHeight as u32;
+        crate::http_server::log_http(&format!("extract_shell_thumbnail SUCCESS for {:?}: {}x{}", path, w, h));
+
+        let mut bmi = BITMAPINFO {
+            bmiHeader: BITMAPINFOHEADER {
+                biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: bm.bmWidth,
+                biHeight: -bm.bmHeight,
+                biPlanes: 1,
+                biBitCount: 32,
+                biCompression: BI_RGB,
+                biSizeImage: (w * h * 4) as u32,
+                biXPelsPerMeter: 0,
+                biYPelsPerMeter: 0,
+                biClrUsed: 0,
+                biClrImportant: 0,
+            },
+            bmiColors: [windows_sys::Win32::Graphics::Gdi::RGBQUAD {
+                rgbBlue: 0,
+                rgbGreen: 0,
+                rgbRed: 0,
+                rgbReserved: 0,
+            }; 1],
+        };
+
+        let mut bgra = vec![0u8; (w * h * 4) as usize];
+        let hdc = CreateCompatibleDC(0 as _);
+        let scanlines = GetDIBits(
+            hdc,
+            hbm,
+            0,
+            h,
+            bgra.as_mut_ptr() as *mut c_void,
+            &mut bmi,
+            DIB_RGB_COLORS,
+        );
+        DeleteDC(hdc);
+        DeleteObject(hbm as _);
+
+        if scanlines == 0 {
+            return None;
+        }
+
+        let mut all_zero_alpha = true;
+        for chunk in bgra.chunks_exact(4) {
+            if chunk[3] != 0 {
+                all_zero_alpha = false;
+                break;
+            }
+        }
+        if all_zero_alpha {
+            for chunk in bgra.chunks_exact_mut(4) {
+                chunk[3] = 255;
+            }
+        }
+
+        Some(LoadedImage {
+            w,
+            h,
+            bgra,
+            visual_type,
+        })
+    }
+}
+
+fn crop_to_fill_loaded(img: LoadedImage, target_w: u32, target_h: u32) -> LoadedImage {
+    if img.w == target_w && img.h == target_h {
+        return img;
+    }
+    let mut rgba_bytes = img.bgra.clone();
+    for chunk in rgba_bytes.chunks_exact_mut(4) {
+        chunk.swap(0, 2);
+    }
+    if let Some(rgba_img) = image::RgbaImage::from_raw(img.w, img.h, rgba_bytes) {
+        let dyn_img = image::DynamicImage::ImageRgba8(rgba_img);
+        let filled = dyn_img
+            .resize_to_fill(target_w, target_h, image::imageops::FilterType::Lanczos3)
+            .to_rgba8();
+        rgba_to_loaded(&filled, img.visual_type)
+    } else {
+        img
+    }
+}
+
+fn load_single_file_visual(path: &Path, vtype: CardVisualType) -> Option<LoadedImage> {
+    match vtype {
+        CardVisualType::Photo => {
+            if let Ok(img) = image::open(path) {
+                let (ow, oh) = (img.width(), img.height());
+                let aspect = ow as f32 / oh.max(1) as f32;
+                let (target_w, target_h) = if aspect > 1.2 {
+                    (560u32, (560.0 / aspect).round() as u32)
+                } else if aspect < 0.8 {
+                    ((500.0 * aspect).round().max(320.0) as u32, 500u32)
+                } else {
+                    (460u32, 460u32)
+                };
+                let resized = img
+                    .resize_to_fill(target_w, target_h, image::imageops::FilterType::Lanczos3)
+                    .to_rgba8();
+                Some(rgba_to_loaded(&resized, CardVisualType::Photo))
+            } else {
+                None
+            }
+        }
+        CardVisualType::Pdf => {
+            extract_shell_thumbnail(path, 400, 560, CardVisualType::Pdf)
+        }
+        CardVisualType::Video => {
+            extract_shell_thumbnail(path, 560, 320, CardVisualType::Video)
+        }
+    }
+}
+
+fn load_batch_file_visual(
+    path: &Path,
+    target_w: u32,
+    target_h: u32,
+    vtype: CardVisualType,
+) -> Option<LoadedImage> {
+    match vtype {
+        CardVisualType::Photo => {
+            if let Ok(img) = image::open(path) {
+                let resized = img
+                    .resize_to_fill(target_w, target_h, image::imageops::FilterType::Lanczos3)
+                    .to_rgba8();
+                Some(rgba_to_loaded(&resized, CardVisualType::Photo))
+            } else {
+                None
+            }
+        }
+        CardVisualType::Pdf | CardVisualType::Video => {
+            let raw_thumb = extract_shell_thumbnail(path, target_w as i32, target_h as i32, vtype)?;
+            Some(crop_to_fill_loaded(raw_thumb, target_w, target_h))
+        }
+    }
+}
+
+fn rgba_to_loaded(img: &image::RgbaImage, visual_type: CardVisualType) -> LoadedImage {
+    let (w, h) = img.dimensions();
+    let mut bgra = Vec::with_capacity((w * h * 4) as usize);
+    for pixel in img.pixels() {
+        let [r, g, b, a] = pixel.0;
+        bgra.push(b);
+        bgra.push(g);
+        bgra.push(r);
+        bgra.push(a);
+    }
+    LoadedImage {
+        w,
+        h,
+        bgra,
+        visual_type,
+    }
+}
+
+// ----------------------------------------------------------------------------
 // Scene Assembly & Dispatch
 // ----------------------------------------------------------------------------
 
@@ -233,53 +506,60 @@ fn dispatch_landing(item: LandingItem) {
     let (canvas_w, canvas_h) = match &item {
         LandingItem::Files { paths, is_image, count, .. } if *is_image && !paths.is_empty() => {
             if *count == 1 {
-                if let Ok(img) = image::open(&paths[0]) {
-                    let (ow, oh) = (img.width(), img.height());
-                    let aspect = ow as f32 / oh.max(1) as f32;
-                    let (target_w, target_h) = if aspect > 1.2 {
-                        // Landscape photo
-                        (560u32, (560.0 / aspect).round() as u32)
+                let p = &paths[0];
+                let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+                let vtype = get_file_visual_type(&ext).unwrap_or(CardVisualType::Photo);
+
+                if let Some(img) = load_single_file_visual(p, vtype) {
+                    let aspect = img.w as f32 / img.h.max(1) as f32;
+                    let (cw, ch) = if aspect > 1.2 {
+                        (540.0, 540.0 / aspect)
                     } else if aspect < 0.8 {
-                        // Portrait photo
-                        ((500.0 * aspect).round().max(320.0) as u32, 500u32)
+                        (480.0 * aspect, 480.0)
                     } else {
-                        // Square-ish
-                        (460u32, 460u32)
+                        (440.0, 440.0)
                     };
-                    let resized = img
-                        .resize_to_fill(target_w, target_h, image::imageops::FilterType::Lanczos3)
-                        .to_rgba8();
-                    images.push(rgba_to_loaded(&resized));
+                    images.push(img);
+                    let win_w = (cw + 240.0).max(780.0) as i32;
+                    let win_h = (ch + 200.0).max(640.0) as i32;
+                    (win_w, win_h)
+                } else {
+                    (540, 280)
                 }
-                (780, 640)
             } else if *count == 2 {
                 for p in paths.iter().take(2) {
-                    if let Ok(img) = image::open(p) {
-                        let resized = img
-                            .resize_to_fill(340, 460, image::imageops::FilterType::Lanczos3)
-                            .to_rgba8();
-                        images.push(rgba_to_loaded(&resized));
+                    let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+                    let vtype = get_file_visual_type(&ext).unwrap_or(CardVisualType::Photo);
+                    if let Some(img) = load_batch_file_visual(p, 360, 460, vtype) {
+                        images.push(img);
                     }
                 }
-                (880, 600)
+                if !images.is_empty() {
+                    (880, 600)
+                } else {
+                    (540, 280)
+                }
             } else {
-                // Dynamic 3D Fanned Arc Deck for 3, 4, 5, 6, 7, 8, 9+ photos!
+                // Dynamic 3D Fanned Arc Deck for 3, 4, 5, 6, 7, 8, 9+ visual files!
                 let take_n = (*count).min(9);
                 for p in paths.iter().take(take_n) {
-                    if let Ok(img) = image::open(p) {
-                        let resized = img
-                            .resize_to_fill(380, 480, image::imageops::FilterType::Lanczos3)
-                            .to_rgba8();
-                        images.push(rgba_to_loaded(&resized));
+                    let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+                    let vtype = get_file_visual_type(&ext).unwrap_or(CardVisualType::Photo);
+                    if let Some(img) = load_batch_file_visual(p, 380, 480, vtype) {
+                        images.push(img);
                     }
                 }
-                let w = match images.len() {
-                    3 => 1120,
-                    4..=5 => 1280,
-                    6..=7 => 1440,
-                    _ => 1560,
-                };
-                (w, 700)
+                if !images.is_empty() {
+                    let w = match images.len() {
+                        3 => 1120,
+                        4..=5 => 1280,
+                        6..=7 => 1440,
+                        _ => 1560,
+                    };
+                    (w, 700)
+                } else {
+                    (540, 280)
+                }
             }
         }
         LandingItem::Files { .. } => (540, 280),
@@ -305,19 +585,6 @@ fn dispatch_landing(item: LandingItem) {
             PostMessageW(hwnd, WM_SHOW_LANDING, 0, 0);
         }
     }
-}
-
-fn rgba_to_loaded(img: &image::RgbaImage) -> LoadedImage {
-    let (w, h) = img.dimensions();
-    let mut bgra = Vec::with_capacity((w * h * 4) as usize);
-    for pixel in img.pixels() {
-        let [r, g, b, a] = pixel.0;
-        bgra.push(b);
-        bgra.push(g);
-        bgra.push(r);
-        bgra.push(a);
-    }
-    LoadedImage { w, h, bgra }
 }
 
 // ----------------------------------------------------------------------------
@@ -577,6 +844,16 @@ unsafe extern "system" fn landing_wnd_proc(
                                     commit_layered_frame(hwnd, &s);
                                 }
                                 s.last_interaction = Instant::now();
+                            } else {
+                                // Frontmost focused card clicked directly: Open directly!
+                                let item_clone = s.item.clone();
+                                drop(s);
+                                if let LandingItem::Files { paths, .. } = item_clone {
+                                    if let Some(path) = paths.get(clicked_idx) {
+                                        open_file_directly(path);
+                                        trigger_dismiss();
+                                    }
+                                }
                             }
                         } else {
                             // Non-image card clicked (URL, Text, or File)
@@ -644,6 +921,7 @@ unsafe extern "system" fn landing_wnd_proc(
             } else if wparam == VK_RETURN as usize {
                 if let Some(state_arc) = get_active_state() {
                     let s = state_arc.lock().unwrap();
+                    let focus_idx = s.focus_idx;
                     let item_clone = s.item.clone();
                     drop(s);
                     match item_clone {
@@ -652,13 +930,10 @@ unsafe extern "system" fn landing_wnd_proc(
                             trigger_dismiss();
                         }
                         LandingItem::Files { paths, .. } => {
-                            if let Some(first_path) = paths.first() {
-                                let ext = first_path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
-                                if ext == "pdf" || matches!(ext.as_str(), "mp4" | "mkv" | "mov" | "avi" | "webm") {
-                                    open_file_directly(first_path);
-                                } else {
-                                    show_file_in_explorer(first_path);
-                                }
+                            if let Some(path) = paths.get(focus_idx) {
+                                open_file_directly(path);
+                            } else if let Some(first_path) = paths.first() {
+                                open_file_directly(first_path);
                             }
                             trigger_dismiss();
                         }
@@ -1176,6 +1451,17 @@ fn render_3d_spatial_scene(
         // Rasterize card image with 3D homography & rounded corners
         let img = &images[cfg.image_idx];
         rasterize_perspective_card(buffer, canvas_w, canvas_h, &screen_corners, cfg.w, cfg.h, img, cfg.is_focused);
+
+        // Visual overlays for Video and PDF cards
+        match img.visual_type {
+            CardVisualType::Video => {
+                render_video_card_overlay(hdc, buffer, canvas_w, canvas_h, &screen_corners, cfg.is_focused);
+            }
+            CardVisualType::Pdf => {
+                render_pdf_card_overlay(hdc, buffer, canvas_w, canvas_h, &screen_corners, cfg.is_focused);
+            }
+            CardVisualType::Photo => {}
+        }
     }
 
     // Badge for extra photos if batch > 5
@@ -1605,6 +1891,152 @@ fn render_more_photos_badge(
         }
     }
     let _ = extra_count; // Number can be drawn if GDI font is hooked
+}
+
+// ----------------------------------------------------------------------------
+// 3D Card Overlays (Video Play Button & PDF / Video Badges)
+// ----------------------------------------------------------------------------
+
+fn render_video_card_overlay(
+    hdc: HDC,
+    buffer: &mut [u8],
+    canvas_w: i32,
+    canvas_h: i32,
+    corners: &[Point2D; 4],
+    is_focused: bool,
+) {
+    // 1. Center coordinates of the projected card
+    let cx = (corners[0].x + corners[1].x + corners[2].x + corners[3].x) / 4.0;
+    let cy = (corners[0].y + corners[1].y + corners[2].y + corners[3].y) / 4.0;
+
+    // 2. Circular Frosted Acrylic Play Button (Apple TV style)
+    let radius = if is_focused { 28.0f32 } else { 22.0f32 };
+    let min_x = (cx - radius - 2.0).floor().max(0.0) as i32;
+    let max_x = (cx + radius + 2.0).ceil().min((canvas_w - 1) as f32) as i32;
+    let min_y = (cy - radius - 2.0).floor().max(0.0) as i32;
+    let max_y = (cy + radius + 2.0).ceil().min((canvas_h - 1) as f32) as i32;
+
+    for y in min_y..=max_y {
+        let row = (y as usize) * (canvas_w as usize) * 4;
+        let dy = y as f32 - cy;
+        for x in min_x..=max_x {
+            let dx = x as f32 - cx;
+            let dist = (dx * dx + dy * dy).sqrt();
+
+            if dist <= radius {
+                let p_idx = row + (x as usize) * 4;
+                let is_rim = dist >= (radius - 1.5);
+
+                if is_rim {
+                    // 1.5px Glass White Rim
+                    let blend_a = 0.70f32;
+                    let (cr, cg, cb) = (255.0, 255.0, 255.0);
+                    buffer[p_idx + 0] = (buffer[p_idx + 0] as f32 * (1.0 - blend_a) + cb * blend_a) as u8;
+                    buffer[p_idx + 1] = (buffer[p_idx + 1] as f32 * (1.0 - blend_a) + cg * blend_a) as u8;
+                    buffer[p_idx + 2] = (buffer[p_idx + 2] as f32 * (1.0 - blend_a) + cr * blend_a) as u8;
+                    buffer[p_idx + 3] = 255;
+                } else {
+                    // Frosted Obsidian Black Center (Slate 900: 15, 23, 42 with 75% opacity)
+                    let blend_a = 0.75f32;
+                    let (cr, cg, cb) = (15.0, 23.0, 42.0);
+                    buffer[p_idx + 0] = (buffer[p_idx + 0] as f32 * (1.0 - blend_a) + cb * blend_a) as u8;
+                    buffer[p_idx + 1] = (buffer[p_idx + 1] as f32 * (1.0 - blend_a) + cg * blend_a) as u8;
+                    buffer[p_idx + 2] = (buffer[p_idx + 2] as f32 * (1.0 - blend_a) + cr * blend_a) as u8;
+                    buffer[p_idx + 3] = 255;
+                }
+            }
+        }
+    }
+
+    // 3. Crisp Equilateral White Triangle ▶ pointing right
+    let tri_h = if is_focused { 18.0f32 } else { 14.0f32 };
+    let tri_w = tri_h * 0.866;
+    let tri_x0 = cx - (tri_w / 3.0) + 1.5;
+    let tri_x1 = tri_x0 + tri_w;
+    let tri_y0 = cy - (tri_h / 2.0);
+    let tri_y1 = cy + (tri_h / 2.0);
+
+    let t_min_x = tri_x0.floor().max(0.0) as i32;
+    let t_max_x = tri_x1.ceil().min((canvas_w - 1) as f32) as i32;
+    let t_min_y = tri_y0.floor().max(0.0) as i32;
+    let t_max_y = tri_y1.ceil().min((canvas_h - 1) as f32) as i32;
+
+    for y in t_min_y..=t_max_y {
+        let y_f = y as f32;
+        if y_f < tri_y0 || y_f > tri_y1 { continue; }
+        let dist_y = (y_f - cy).abs();
+        let max_dx_at_y = tri_w * (1.0 - dist_y / (tri_h / 2.0));
+        let x_edge = tri_x0 + max_dx_at_y;
+
+        let row = (y as usize) * (canvas_w as usize) * 4;
+        for x in t_min_x..=t_max_x {
+            let x_f = x as f32;
+            if x_f >= tri_x0 && x_f <= x_edge {
+                let p_idx = row + (x as usize) * 4;
+                buffer[p_idx + 0] = 255;
+                buffer[p_idx + 1] = 255;
+                buffer[p_idx + 2] = 255;
+                buffer[p_idx + 3] = 255;
+            }
+        }
+    }
+
+    // 4. Sleek Frosted Top-Left Badge: [ 🎬 VIDEO ]
+    let bx0 = (corners[0].x + 14.0).max(0.0) as i32;
+    let by0 = (corners[0].y + 14.0).max(0.0) as i32;
+    let bx1 = (bx0 + 74).min(canvas_w - 1);
+    let by1 = (by0 + 24).min(canvas_h - 1);
+
+    fill_rounded_box(
+        buffer, canvas_w, canvas_h,
+        bx0, by0, bx1, by1, 8,
+        0x0F172A, 220,
+        0x475569, 240,
+    );
+
+    unsafe {
+        let badge_font = create_gdi_font(10, true, false);
+        draw_glass_text(
+            hdc, buffer, canvas_w, canvas_h,
+            "🎬 VIDEO", badge_font, 0x00FFFFFF,
+            RECT { left: bx0, top: by0, right: bx1, bottom: by1 },
+            DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
+        );
+        DeleteObject(badge_font as _);
+    }
+}
+
+fn render_pdf_card_overlay(
+    hdc: HDC,
+    buffer: &mut [u8],
+    canvas_w: i32,
+    canvas_h: i32,
+    corners: &[Point2D; 4],
+    _is_focused: bool,
+) {
+    // Sleek Crimson Pill Badge: [ 📄 PDF ] in top-left
+    let bx0 = (corners[0].x + 14.0).max(0.0) as i32;
+    let by0 = (corners[0].y + 14.0).max(0.0) as i32;
+    let bx1 = (bx0 + 64).min(canvas_w - 1);
+    let by1 = (by0 + 24).min(canvas_h - 1);
+
+    fill_rounded_box(
+        buffer, canvas_w, canvas_h,
+        bx0, by0, bx1, by1, 8,
+        0xDC2626, 230,
+        0xFCA5A5, 240,
+    );
+
+    unsafe {
+        let badge_font = create_gdi_font(10, true, false);
+        draw_glass_text(
+            hdc, buffer, canvas_w, canvas_h,
+            "📄 PDF", badge_font, 0x00FFFFFF,
+            RECT { left: bx0, top: by0, right: bx1, bottom: by1 },
+            DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
+        );
+        DeleteObject(badge_font as _);
+    }
 }
 
 // ----------------------------------------------------------------------------

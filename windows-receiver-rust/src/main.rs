@@ -86,7 +86,13 @@ fn main() {
             let is_test_batch = std::env::args().any(|a| a == "--test-batch" || a == "-b");
             let is_test_url = std::env::args().any(|a| a == "--test-url" || a == "-u");
             let is_test_text = std::env::args().any(|a| a == "--test-text" || a == "-t");
-            if is_test_url {
+            let is_test_pdf = std::env::args().any(|a| a == "--test-pdf");
+            let is_test_video = std::env::args().any(|a| a == "--test-video");
+            if is_test_pdf {
+                send_local_ipc("PDF");
+            } else if is_test_video {
+                send_local_ipc("VIDEO");
+            } else if is_test_url {
                 send_local_ipc("URL");
             } else if is_test_text {
                 send_local_ipc("TEXT");
@@ -180,11 +186,14 @@ fn main() {
     let _ipc_handle = std::thread::Builder::new()
         .name("flick-local-ipc".to_string())
         .spawn(move || {
-            if let Ok(socket) = std::net::UdpSocket::bind(("127.0.0.1", LOCAL_IPC_PORT)) {
-                let mut buf = [0u8; 256];
-                while let Ok((amt, _)) = socket.recv_from(&mut buf) {
-                    if let Ok(cmd) = std::str::from_utf8(&buf[..amt]) {
-                        log_boot(&format!("Local IPC received command: {}", cmd));
+            log_boot("flick-local-ipc thread started");
+            match std::net::UdpSocket::bind(("127.0.0.1", LOCAL_IPC_PORT)) {
+                Ok(socket) => {
+                    log_boot(&format!("Local IPC bound to 127.0.0.1:{}", LOCAL_IPC_PORT));
+                    let mut buf = [0u8; 256];
+                    while let Ok((amt, _)) = socket.recv_from(&mut buf) {
+                        if let Ok(cmd) = std::str::from_utf8(&buf[..amt]) {
+                            log_boot(&format!("Local IPC received command: {}", cmd));
                         match cmd {
                             "BATCH" => tray::trigger_sample_batch_landing(),
                             "LANDING" => tray::trigger_sample_landing(),
@@ -204,6 +213,21 @@ fn main() {
                                     }
                                 }
                             }
+                            "VIDEO" => {
+                                if let Some(user_dirs) = std::env::var_os("USERPROFILE") {
+                                    let dl = std::path::Path::new(&user_dirs).join("Downloads");
+                                    if let Ok(entries) = std::fs::read_dir(dl) {
+                                        for entry in entries.flatten() {
+                                            let p = entry.path();
+                                            let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+                                            if matches!(ext.as_str(), "mp4" | "mkv" | "mov" | "avi" | "webm") {
+                                                landing::show_landing_files(vec![p]);
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                             "DASHBOARD" => gui::open_or_show_dashboard(false),
                             "PAIR" => gui::open_or_show_dashboard(true),
                             c if c.starts_with("SOUND:") => {
@@ -216,7 +240,11 @@ fn main() {
                     }
                 }
             }
-        });
+            Err(e) => {
+                log_boot(&format!("Failed to bind local IPC on port {}: {}", LOCAL_IPC_PORT, e));
+            }
+        }
+    });
 
     log_boot("Daemons started, starting tray loop...");
 
