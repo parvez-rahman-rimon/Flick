@@ -260,23 +260,23 @@ fn dispatch_landing(item: LandingItem) {
                 }
                 (880, 600)
             } else {
-                // Dynamic 3D Cover Flow for 3, 4, 5, 6, 7, 8, 9+ photos!
+                // Dynamic 3D Fanned Arc Deck for 3, 4, 5, 6, 7, 8, 9+ photos!
                 let take_n = (*count).min(9);
                 for p in paths.iter().take(take_n) {
                     if let Ok(img) = image::open(p) {
                         let resized = img
-                            .resize_to_fill(315, 435, image::imageops::FilterType::Lanczos3)
+                            .resize_to_fill(380, 480, image::imageops::FilterType::Lanczos3)
                             .to_rgba8();
                         images.push(rgba_to_loaded(&resized));
                     }
                 }
                 let w = match images.len() {
-                    3 => 1160,
-                    4..=5 => 1320,
-                    6..=7 => 1460,
+                    3 => 1120,
+                    4..=5 => 1280,
+                    6..=7 => 1440,
                     _ => 1560,
                 };
-                (w, 680)
+                (w, 700)
             }
         }
         LandingItem::Files { .. } => (520, 360),
@@ -451,7 +451,7 @@ unsafe extern "system" fn landing_wnd_proc(
                     let cx = (s.canvas_w as f32) / 2.0;
                     let cy = (s.canvas_h as f32) / 2.0;
                     let start_x = cx - ((total_dots as f32 - 1.0) * dot_spacing) / 2.0;
-                    let y_center = cy + 242.0;
+                    let y_center = cy + 252.0;
 
                     if (y - y_center).abs() <= 14.0 {
                         for i in 0..total_dots {
@@ -951,6 +951,7 @@ struct CardConfig {
     trans_x: f32,
     trans_y: f32,
     trans_z: f32,
+    is_focused: bool,
 }
 
 fn render_3d_spatial_scene(
@@ -975,10 +976,10 @@ fn render_3d_spatial_scene(
     let count = images.len();
     let cx = (canvas_w as f32) / 2.0;
     let cy = (canvas_h as f32) / 2.0;
-    let focal = 850.0f32;
-    let camera_dist = 850.0f32;
+    let focal = 900.0f32;
+    let camera_dist = 900.0f32;
 
-    // 2. Define 3D Card Layouts matching the Reel & Reference Designs
+    // 2. Define 3D Card Layouts matching the Reel & Quiet Forms Fanned Arc
     let mut card_configs: Vec<CardConfig> = match count {
         1 => {
             let img = &images[0];
@@ -995,96 +996,97 @@ fn render_3d_spatial_scene(
                 w: cw,
                 h: ch,
                 yaw_deg: 0.0,
-                pitch_deg: -1.0,
+                pitch_deg: 0.0,
                 roll_deg: 0.0,
                 trans_x: 0.0,
                 trans_y: 0.0,
                 trans_z: -20.0,
+                is_focused: true,
             }]
         }
         2 => {
             let active = focus_idx.min(1);
-            let (z0, z1, y0, y1, yaw0, yaw1) = if active == 0 {
-                (-25.0, 35.0, -10.0, 10.0, -4.0, 7.0)
+            let (z0, z1, y0, y1, roll0, roll1) = if active == 0 {
+                (-30.0, 20.0, -14.0, 10.0, -4.5, 4.5)
             } else {
-                (35.0, -25.0, 10.0, -10.0, 7.0, -4.0)
+                (20.0, -30.0, 10.0, -14.0, -4.5, 4.5)
             };
             vec![
                 CardConfig {
                     image_idx: 0,
-                    w: 330.0,
-                    h: 440.0,
-                    yaw_deg: yaw0,
-                    pitch_deg: -1.0,
-                    roll_deg: -2.0,
-                    trans_x: -125.0,
+                    w: 360.0,
+                    h: 460.0,
+                    yaw_deg: 0.0,
+                    pitch_deg: 0.0,
+                    roll_deg: roll0,
+                    trans_x: -115.0,
                     trans_y: y0,
                     trans_z: z0,
+                    is_focused: active == 0,
                 },
                 CardConfig {
                     image_idx: 1,
-                    w: 330.0,
-                    h: 440.0,
-                    yaw_deg: yaw1,
-                    pitch_deg: -1.0,
-                    roll_deg: 2.0,
-                    trans_x: 125.0,
+                    w: 360.0,
+                    h: 460.0,
+                    yaw_deg: 0.0,
+                    pitch_deg: 0.0,
+                    roll_deg: roll1,
+                    trans_x: 115.0,
                     trans_y: y1,
                     trans_z: z1,
+                    is_focused: active == 1,
                 },
             ]
         }
         _ => {
-            // Dynamic Cover Flow for 3, 4, 5, 6, 7, 8, 9+ photos centered on focus_idx!
+            // Interactive 3D Fanned Arc Deck (Quiet forms style: hand-of-cards curve, roll rotation, zero harsh yaw)
             let active = focus_idx.min(count - 1);
             let mut list = Vec::new();
 
             for i in 0..count {
-                if i == active {
+                let diff = i as isize - active as isize;
+                let abs_diff = diff.abs() as f32;
+
+                if diff == 0 {
+                    // Center Hero Card: elevated at arc apex, straight forward, frontmost
                     list.push(CardConfig {
                         image_idx: i,
-                        w: 320.0,
-                        h: 440.0,
+                        w: 380.0,
+                        h: 480.0,
                         yaw_deg: 0.0,
                         pitch_deg: 0.0,
                         roll_deg: 0.0,
                         trans_x: 0.0,
-                        trans_y: -8.0,
-                        trans_z: -35.0, // Hero card in front
-                    });
-                } else if i < active {
-                    let dist = (active - i) as f32;
-                    let yaw = (44.0 + (dist - 1.0) * 3.0).min(56.0);
-                    let trans_x = -240.0 - (dist - 1.0) * 125.0;
-                    let trans_z = 25.0 + (dist - 1.0) * 35.0;
-                    let trans_y = dist * 2.0;
-                    list.push(CardConfig {
-                        image_idx: i,
-                        w: 280.0,
-                        h: 405.0,
-                        yaw_deg: yaw,
-                        pitch_deg: -1.0,
-                        roll_deg: 0.0,
-                        trans_x,
-                        trans_y,
-                        trans_z,
+                        trans_y: -24.0, // Elevated up at apex of arc
+                        trans_z: -40.0, // Frontmost
+                        is_focused: true,
                     });
                 } else {
-                    let dist = (i - active) as f32;
-                    let yaw = (-44.0 - (dist - 1.0) * 3.0).max(-56.0);
-                    let trans_x = 240.0 + (dist - 1.0) * 125.0;
-                    let trans_z = 25.0 + (dist - 1.0) * 35.0;
-                    let trans_y = dist * 2.0;
+                    // Side Cards: gentle roll rotation, curving downward along rainbow arc
+                    let roll = (diff as f32 * 5.2).clamp(-18.0, 18.0);
+                    // Very subtle yaw just for tiny physical depth (facing slightly towards center)
+                    let yaw = (diff as f32 * -1.8).clamp(-5.0, 5.0);
+                    // Smooth curved arch: drops down gracefully as distance increases
+                    let trans_y = -24.0 + abs_diff * 14.0 + (abs_diff * abs_diff * 1.5);
+                    // Overlapping horizontal spread (~145px visible per card)
+                    let trans_x = diff as f32 * 145.0;
+                    // Stacking depth: further cards are pushed behind
+                    let trans_z = 15.0 + abs_diff * 20.0;
+
+                    // Slightly scale down side cards
+                    let scale = (1.0 - abs_diff * 0.04).max(0.85);
+
                     list.push(CardConfig {
                         image_idx: i,
-                        w: 280.0,
-                        h: 405.0,
+                        w: 380.0 * scale,
+                        h: 480.0 * scale,
                         yaw_deg: yaw,
-                        pitch_deg: -1.0,
-                        roll_deg: 0.0,
+                        pitch_deg: 0.0,
+                        roll_deg: roll,
                         trans_x,
                         trans_y,
                         trans_z,
+                        is_focused: false,
                     });
                 }
             }
@@ -1107,11 +1109,11 @@ fn render_3d_spatial_scene(
         });
 
         // Soft ambient drop shadow underneath card
-        rasterize_drop_shadow(buffer, canvas_w, canvas_h, &screen_corners);
+        rasterize_drop_shadow(buffer, canvas_w, canvas_h, &screen_corners, cfg.is_focused);
 
         // Rasterize card image with 3D homography & rounded corners
         let img = &images[cfg.image_idx];
-        rasterize_perspective_card(buffer, canvas_w, canvas_h, &screen_corners, cfg.w, cfg.h, img, cfg.yaw_deg);
+        rasterize_perspective_card(buffer, canvas_w, canvas_h, &screen_corners, cfg.w, cfg.h, img, cfg.is_focused);
     }
 
     // Badge for extra photos if batch > 5
@@ -1121,7 +1123,7 @@ fn render_3d_spatial_scene(
         }
     }
 
-    // Render pagination dots under Cover Flow if multiple images
+    // Render pagination dots under Fanned Arc if multiple images
     if images.len() > 1 {
         let active = focus_idx.min(images.len() - 1);
         render_pagination_dots(buffer, canvas_w, canvas_h, images.len(), active, cx, cy);
@@ -1277,7 +1279,7 @@ fn rasterize_perspective_card(
     card_w: f32,
     card_h: f32,
     img: &LoadedImage,
-    yaw_deg: f32,
+    is_focused: bool,
 ) {
     let inv = match compute_homography_inv(corners[0], corners[1], corners[2], corners[3]) {
         Some(m) => m,
@@ -1289,16 +1291,16 @@ fn rasterize_perspective_card(
     let min_y = corners.iter().map(|p| p.y).fold(f32::INFINITY, f32::min).floor().max(0.0) as i32;
     let max_y = corners.iter().map(|p| p.y).fold(f32::NEG_INFINITY, f32::max).ceil().min((canvas_h - 1) as f32) as i32;
 
-    let r_u = (18.0 / card_w as f64).min(0.2);
-    let r_v = (18.0 / card_h as f64).min(0.2);
+    let r_u = (22.0 / card_w as f64).min(0.22);
+    let r_v = (22.0 / card_h as f64).min(0.22);
 
-    let border_u = 2.0 / card_w as f64;
-    let border_v = 2.0 / card_h as f64;
+    let border_u = if is_focused { 3.2 / card_w as f64 } else { 2.4 / card_w as f64 };
+    let border_v = if is_focused { 3.2 / card_h as f64 } else { 2.4 / card_h as f64 };
 
     let src_w = img.w as usize;
     let src_h = img.h as usize;
 
-    let base_light = 1.0 - (yaw_deg.abs() / 45.0) * 0.14;
+    let base_light = if is_focused { 1.0f32 } else { 0.88f32 };
 
     for y in min_y..=max_y {
         let row_offset = (y as usize) * (canvas_w as usize) * 4;
@@ -1348,15 +1350,15 @@ fn rasterize_perspective_card(
                 continue;
             }
 
-            // Crisp 1.5px white polaroid edge
+            // Crisp solid white polaroid edge (Quiet forms style!)
             let is_border = u < border_u
                 || u > 1.0 - border_u
                 || v < border_v
                 || v > 1.0 - border_v
-                || (is_corner && corner_dist_sq > 0.72);
+                || (is_corner && corner_dist_sq > 0.70);
 
-            let (mut b, mut g, mut r) = if is_border {
-                (252u8, 252u8, 252u8) // Crisp white border
+            let (b, g, r) = if is_border {
+                (255u8, 255u8, 255u8) // Pure solid white border
             } else {
                 // Bilinear sampling
                 let sx_f = u * (src_w - 1) as f64;
@@ -1384,18 +1386,16 @@ fn rasterize_perspective_card(
                     (top * (1.0 - fy) + bot * fy).round().min(255.0) as u8
                 };
 
+                let raw_b = interp(p00.0, p10.0, p01.0, p11.0);
+                let raw_g = interp(p00.1, p10.1, p01.1, p11.1);
+                let raw_r = interp(p00.2, p10.2, p01.2, p11.2);
+
                 (
-                    interp(p00.0, p10.0, p01.0, p11.0),
-                    interp(p00.1, p10.1, p01.1, p11.1),
-                    interp(p00.2, p10.2, p01.2, p11.2),
+                    ((raw_b as f32) * base_light).min(255.0) as u8,
+                    ((raw_g as f32) * base_light).min(255.0) as u8,
+                    ((raw_r as f32) * base_light).min(255.0) as u8,
                 )
             };
-
-            // 3D Depth lighting
-            let light = base_light;
-            b = ((b as f32) * light).min(255.0) as u8;
-            g = ((g as f32) * light).min(255.0) as u8;
-            r = ((r as f32) * light).min(255.0) as u8;
 
             let p_idx = row_offset + (x as usize) * 4;
             buffer[p_idx + 0] = b;
@@ -1415,9 +1415,11 @@ fn rasterize_drop_shadow(
     canvas_w: i32,
     canvas_h: i32,
     corners: &[Point2D; 4],
+    is_focused: bool,
 ) {
-    let offset_y = 16.0f32;
-    let margin = 18.0f32;
+    let offset_y = if is_focused { 22.0f32 } else { 16.0f32 };
+    let margin = if is_focused { 28.0f32 } else { 20.0f32 };
+    let max_alpha = if is_focused { 115.0f32 } else { 70.0f32 };
 
     let min_x = (corners.iter().map(|p| p.x).fold(f32::INFINITY, f32::min) - margin).floor().max(0.0) as i32;
     let max_x = (corners.iter().map(|p| p.x).fold(f32::NEG_INFINITY, f32::max) + margin).ceil().min((canvas_w - 1) as f32) as i32;
@@ -1438,11 +1440,10 @@ fn rasterize_drop_shadow(
 
             if dist < max_dist {
                 let falloff = 1.0 - (dist / max_dist).min(1.0);
-                let shadow_alpha = (falloff * falloff * 90.0) as u8; // max opacity ~35%
+                let shadow_alpha = (falloff * falloff * max_alpha) as u8;
 
                 let p_idx = row_offset + (x as usize) * 4;
                 if buffer[p_idx + 3] < 255 {
-                    // Only apply to background/transparent areas or blend with existing shadow
                     buffer[p_idx + 0] = 0;
                     buffer[p_idx + 1] = 0;
                     buffer[p_idx + 2] = 0;
@@ -1472,7 +1473,7 @@ fn render_pagination_dots(
     }
     let dot_spacing = 16.0f32;
     let start_x = cx - ((total as f32 - 1.0) * dot_spacing) / 2.0;
-    let y_center = cy + 242.0;
+    let y_center = cy + 252.0;
 
     for i in 0..total {
         let dot_cx = start_x + (i as f32) * dot_spacing;
