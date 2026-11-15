@@ -4,6 +4,10 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.net.Uri
 import android.os.Build
 import android.provider.OpenableColumns
@@ -49,6 +53,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -161,6 +166,45 @@ fun SpatialFlickDeck(
             delay(120)
             val toSend = if (isSingle && uris.isNotEmpty()) listOf(uris.first()) else uris
             onFlick(toSend, isSingle)
+        }
+    }
+
+    // Physical Wrist Flick & Phone Shake Sensor Detection
+    val sensorManager = remember { context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager }
+    DisposableEffect(sensorManager, isFlicking) {
+        val accelerometer = sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+        val listener = object : SensorEventListener {
+            private var lastFlickTime = 0L
+
+            override fun onSensorChanged(event: SensorEvent?) {
+                if (event == null || isFlicking) return
+                val x = event.values[0]
+                val y = event.values[1]
+                val z = event.values[2]
+
+                // Total acceleration magnitude normalized against Earth gravity
+                val gForce = kotlin.math.sqrt((x * x + y * y + z * z).toDouble()).toFloat() / SensorManager.GRAVITY_EARTH
+
+                val now = System.currentTimeMillis()
+                // Physical wrist flick towards PC or upward shake:
+                // 1) gForce exceeds 1.55g (approx 15.2 m/s^2)
+                // 2) or sharp upward acceleration jerk (y > 14.5 m/s^2)
+                // 3) or forward flick tilt snap (z > 14.0 m/s^2)
+                if ((gForce > 1.55f || y > 14.5f || z > 14.0f) && (now - lastFlickTime > 1200)) {
+                    lastFlickTime = now
+                    executeFlick(isSingle = false)
+                }
+            }
+
+            override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+        }
+
+        if (accelerometer != null) {
+            sensorManager?.registerListener(listener, accelerometer, SensorManager.SENSOR_DELAY_GAME)
+        }
+
+        onDispose {
+            sensorManager?.unregisterListener(listener)
         }
     }
 

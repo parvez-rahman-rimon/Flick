@@ -72,23 +72,32 @@ object HapticHelper {
             if (!vibrator.hasVibrator()) return
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && vibrator.areAllPrimitivesSupported(
-                    VibrationEffect.Composition.PRIMITIVE_QUICK_RISE,
+                    VibrationEffect.Composition.PRIMITIVE_SLOW_RISE,
+                    VibrationEffect.Composition.PRIMITIVE_LOW_TICK
+                )) {
+                // Silky smooth luxury haptic curve: soft fluid rise ending in a gentle, warm low tick
+                val comp = VibrationEffect.startComposition()
+                    .addPrimitive(VibrationEffect.Composition.PRIMITIVE_SLOW_RISE, 0.40f)
+                    .addPrimitive(VibrationEffect.Composition.PRIMITIVE_LOW_TICK, 0.55f)
+                    .compose()
+                vibrator.vibrate(comp)
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && vibrator.areAllPrimitivesSupported(
                     VibrationEffect.Composition.PRIMITIVE_TICK
                 )) {
                 val comp = VibrationEffect.startComposition()
-                    .addPrimitive(VibrationEffect.Composition.PRIMITIVE_QUICK_RISE, 0.75f)
-                    .addPrimitive(VibrationEffect.Composition.PRIMITIVE_TICK, 1.0f)
+                    .addPrimitive(VibrationEffect.Composition.PRIMITIVE_TICK, 0.45f)
                     .compose()
                 vibrator.vibrate(comp)
             } else {
+                // Soft bell-curve waveform: gentle smooth swell, zero harsh mechanical buzzing
                 performVibration(
                     context,
-                    longArrayOf(0, 15, 20, 30),
-                    intArrayOf(0, 110, 190, 255)
+                    longArrayOf(0, 16, 28, 18),
+                    intArrayOf(0, 45, 125, 40)
                 )
             }
         } catch (_: Exception) {
-            performVibration(context, longArrayOf(0, 35), intArrayOf(0, 180))
+            performVibration(context, longArrayOf(0, 25), intArrayOf(0, 85))
         }
     }
 
