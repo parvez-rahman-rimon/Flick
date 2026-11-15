@@ -256,27 +256,24 @@ fn dispatch_landing(item: LandingItem) {
                     }
                 }
                 (880, 600)
-            } else if *count == 3 {
-                for p in paths.iter().take(3) {
-                    if let Ok(img) = image::open(p) {
-                        let resized = img
-                            .resize_to_fill(320, 440, image::imageops::FilterType::Lanczos3)
-                            .to_rgba8();
-                        images.push(rgba_to_loaded(&resized));
-                    }
-                }
-                (1040, 620)
             } else {
-                // 4 or 5+ photos
-                for p in paths.iter().take(5) {
+                // Dynamic 3D Cover Flow for 3, 4, 5, 6, 7, 8, 9+ photos!
+                let take_n = (*count).min(9);
+                for p in paths.iter().take(take_n) {
                     if let Ok(img) = image::open(p) {
                         let resized = img
-                            .resize_to_fill(300, 420, image::imageops::FilterType::Lanczos3)
+                            .resize_to_fill(315, 435, image::imageops::FilterType::Lanczos3)
                             .to_rgba8();
                         images.push(rgba_to_loaded(&resized));
                     }
                 }
-                (1180, 640)
+                let w = match images.len() {
+                    3 => 1060,
+                    4..=5 => 1240,
+                    6..=7 => 1400,
+                    _ => 1520,
+                };
+                (w, 660)
             }
         }
         LandingItem::Files { .. } => (520, 360),
@@ -888,103 +885,92 @@ fn render_3d_spatial_scene(
             vec![
                 CardConfig {
                     image_idx: 0,
-                    w: 290.0,
+                    w: 285.0,
                     h: 410.0,
-                    yaw_deg: 30.0,
-                    pitch_deg: -1.5,
+                    yaw_deg: 46.0,
+                    pitch_deg: -1.0,
                     roll_deg: 0.0,
-                    trans_x: -280.0,
-                    trans_y: 0.0,
-                    trans_z: 75.0, // Left wing
+                    trans_x: -240.0,
+                    trans_y: 2.0,
+                    trans_z: 60.0,
                 },
                 CardConfig {
                     image_idx: 2,
-                    w: 290.0,
+                    w: 285.0,
                     h: 410.0,
-                    yaw_deg: -30.0,
-                    pitch_deg: -1.5,
+                    yaw_deg: -46.0,
+                    pitch_deg: -1.0,
                     roll_deg: 0.0,
-                    trans_x: 280.0,
-                    trans_y: 0.0,
-                    trans_z: 75.0, // Right wing
+                    trans_x: 240.0,
+                    trans_y: 2.0,
+                    trans_z: 60.0,
                 },
                 CardConfig {
                     image_idx: 1,
                     w: 320.0,
-                    h: 445.0,
+                    h: 440.0,
                     yaw_deg: 0.0,
                     pitch_deg: 0.0,
                     roll_deg: 0.0,
                     trans_x: 0.0,
                     trans_y: 0.0,
-                    trans_z: -25.0, // Center hero in front
+                    trans_z: -30.0,
                 },
             ]
         }
         _ => {
-            // 4 or 5+ cards: Full 5-card spatial arc
-            let total_slots = count.min(5);
+            // Dynamic Cover Flow for 4, 5, 6, 7, 8, 9+ photos!
+            let total = count;
+            let mid = total / 2;
             let mut list = Vec::new();
-            if total_slots >= 5 {
-                list.push(CardConfig {
-                    image_idx: 0,
-                    w: 260.0,
-                    h: 380.0,
-                    yaw_deg: 44.0,
-                    pitch_deg: -2.0,
-                    roll_deg: 0.0,
-                    trans_x: -410.0,
-                    trans_y: 6.0,
-                    trans_z: 130.0,
-                });
-                list.push(CardConfig {
-                    image_idx: 4,
-                    w: 260.0,
-                    h: 380.0,
-                    yaw_deg: -44.0,
-                    pitch_deg: -2.0,
-                    roll_deg: 0.0,
-                    trans_x: 410.0,
-                    trans_y: 6.0,
-                    trans_z: 130.0,
-                });
+
+            for i in 0..total {
+                if i == mid {
+                    list.push(CardConfig {
+                        image_idx: i,
+                        w: 320.0,
+                        h: 440.0,
+                        yaw_deg: 0.0,
+                        pitch_deg: 0.0,
+                        roll_deg: 0.0,
+                        trans_x: 0.0,
+                        trans_y: 0.0,
+                        trans_z: -35.0,
+                    });
+                } else if i < mid {
+                    let dist = (mid - i) as f32;
+                    let yaw = (42.0 + (dist - 1.0) * 3.0).min(56.0);
+                    let trans_x = -170.0 - (dist - 1.0) * 115.0;
+                    let trans_z = 25.0 + (dist - 1.0) * 35.0;
+                    list.push(CardConfig {
+                        image_idx: i,
+                        w: 280.0,
+                        h: 405.0,
+                        yaw_deg: yaw,
+                        pitch_deg: -1.0,
+                        roll_deg: 0.0,
+                        trans_x,
+                        trans_y: 2.0,
+                        trans_z,
+                    });
+                } else {
+                    let dist = (i - mid) as f32;
+                    let yaw = (-42.0 - (dist - 1.0) * 3.0).max(-56.0);
+                    let trans_x = 170.0 + (dist - 1.0) * 115.0;
+                    let trans_z = 25.0 + (dist - 1.0) * 35.0;
+                    list.push(CardConfig {
+                        image_idx: i,
+                        w: 280.0,
+                        h: 405.0,
+                        yaw_deg: yaw,
+                        pitch_deg: -1.0,
+                        roll_deg: 0.0,
+                        trans_x,
+                        trans_y: 2.0,
+                        trans_z,
+                    });
+                }
             }
-            if total_slots >= 3 {
-                list.push(CardConfig {
-                    image_idx: 1,
-                    w: 285.0,
-                    h: 410.0,
-                    yaw_deg: 24.0,
-                    pitch_deg: -1.5,
-                    roll_deg: 0.0,
-                    trans_x: -210.0,
-                    trans_y: 2.0,
-                    trans_z: 50.0,
-                });
-                list.push(CardConfig {
-                    image_idx: if total_slots >= 4 { 3 } else { 2 },
-                    w: 285.0,
-                    h: 410.0,
-                    yaw_deg: -24.0,
-                    pitch_deg: -1.5,
-                    roll_deg: 0.0,
-                    trans_x: 210.0,
-                    trans_y: 2.0,
-                    trans_z: 50.0,
-                });
-            }
-            // Center hero
-            list.push(CardConfig {
-                image_idx: if total_slots >= 3 { 2 } else { 0 },
-                w: 320.0,
-                h: 445.0,
-                yaw_deg: 0.0,
-                pitch_deg: 0.0,
-                roll_deg: 0.0,
-                trans_x: 0.0,
-                trans_y: 0.0,
-                trans_z: -30.0,
-            });
             list
         }
     };
@@ -1012,8 +998,8 @@ fn render_3d_spatial_scene(
 
     // Badge for extra photos if batch > 5
     if let LandingItem::Files { count: total, .. } = item {
-        if *total > 5 && !projected_cards.is_empty() {
-            render_more_photos_badge(buffer, canvas_w, canvas_h, &projected_cards[0].corners, *total - 5);
+        if *total > images.len() && !projected_cards.is_empty() {
+            render_more_photos_badge(buffer, canvas_w, canvas_h, &projected_cards[0].corners, *total - images.len());
         }
     }
 

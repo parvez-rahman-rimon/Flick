@@ -29,6 +29,7 @@ import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -39,6 +40,8 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -59,6 +62,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -73,6 +77,8 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -95,6 +101,14 @@ import kotlinx.coroutines.withContext
 import java.io.InputStream
 import kotlin.math.roundToInt
 
+data class FlickCardItem(
+    val uri: Uri?,
+    val fileName: String,
+    val fileSizeStr: String,
+    val isImage: Boolean,
+    val bitmap: Bitmap? = null
+)
+
 @Composable
 fun SpatialFlickDeck(
     uris: List<Uri>,
@@ -110,49 +124,59 @@ fun SpatialFlickDeck(
     val density = LocalDensity.current
     val haptic = LocalHapticFeedback.current
 
-    var heroBitmap by remember { mutableStateOf<Bitmap?>(null) }
-    var fileName by remember { mutableStateOf("Ready to flick") }
-    var fileSizeStr by remember { mutableStateOf("") }
-    var isImage by remember { mutableStateOf(false) }
+    val deckItems = remember { mutableStateListOf<FlickCardItem>() }
 
-    // Load metadata and preview image for top URI
+    // Load metadata and preview images for all URIs
     LaunchedEffect(uris, textPayload) {
+        deckItems.clear()
         if (uris.isNotEmpty()) {
-            val primaryUri = uris.first()
-            val mimeType = context.contentResolver.getType(primaryUri) ?: "application/octet-stream"
-            isImage = mimeType.startsWith("image/")
-
             withContext(Dispatchers.IO) {
-                // Query file name and size
-                try {
-                    context.contentResolver.query(primaryUri, null, null, null, null)?.use { cursor ->
-                        val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                        val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
-                        if (cursor.moveToFirst()) {
-                            if (nameIndex != -1) fileName = cursor.getString(nameIndex) ?: fileName
-                            if (sizeIndex != -1) {
-                                val bytes = cursor.getLong(sizeIndex)
-                                fileSizeStr = formatBytes(bytes)
+                val loaded = uris.mapIndexed { idx, uri ->
+                    val mimeType = context.contentResolver.getType(uri) ?: "application/octet-stream"
+                    val isImg = mimeType.startsWith("image/")
+                    var name = "Photo ${idx + 1}"
+                    var sizeStr = ""
+                    try {
+                        context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                            val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                            val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
+                            if (cursor.moveToFirst()) {
+                                if (nameIndex != -1) name = cursor.getString(nameIndex) ?: name
+                                if (sizeIndex != -1) {
+                                    val bytes = cursor.getLong(sizeIndex)
+                                    sizeStr = formatBytes(bytes)
+                                }
                             }
                         }
-                    }
-                } catch (_: Exception) {}
-
-                // Load downsampled bitmap if image
-                if (isImage) {
-                    try {
-                        val bmp = loadThumbnail(context, primaryUri, maxDimension = 900)
-                        withContext(Dispatchers.Main) {
-                            heroBitmap = bmp
-                        }
                     } catch (_: Exception) {}
+
+                    val bmp = if (isImg) loadThumbnail(context, uri, maxDimension = 800) else null
+                    FlickCardItem(
+                        uri = uri,
+                        fileName = name,
+                        fileSizeStr = sizeStr,
+                        isImage = isImg,
+                        bitmap = bmp
+                    )
+                }
+                withContext(Dispatchers.Main) {
+                    deckItems.addAll(loaded)
                 }
             }
         } else if (!textPayload.isNullOrEmpty()) {
-            fileName = "Clipboard Snippet"
-            fileSizeStr = "${textPayload.length} characters"
+            deckItems.add(
+                FlickCardItem(
+                    uri = null,
+                    fileName = "Clipboard Snippet",
+                    fileSizeStr = "${textPayload.length} characters",
+                    isImage = false,
+                    bitmap = null
+                )
+            )
         }
     }
+
+    val pagerState = rememberPagerState(initialPage = 0, pageCount = { deckItems.size.coerceAtLeast(1) })
 
     // Physical drag & shoot animation state
     val dragY = remember { Animatable(0f) }
@@ -173,7 +197,14 @@ fun SpatialFlickDeck(
                 animationSpec = tween(durationMillis = 280, easing = FastOutLinearInEasing)
             )
             delay(120)
-            val toSend = if (isSingle && uris.isNotEmpty()) listOf(uris.first()) else uris
+            val activeItem = deckItems.getOrNull(pagerState.currentPage)
+            val toSend = if (isSingle && activeItem?.uri != null) {
+                listOf(activeItem.uri)
+            } else if (isSingle && uris.isNotEmpty()) {
+                listOf(uris.first())
+            } else {
+                uris
+            }
             onFlick(toSend, isSingle)
         }
     }
@@ -319,163 +350,143 @@ fun SpatialFlickDeck(
                 }
             }
 
-            // 2. Center 3D Card Stack with Interactive Swipe-Up
-            Box(
+            // 2. Center 3D Cover Flow Deck with Interactive Swipe-Up
+            val currentY = dragY.value
+            val deckAlpha = (1f + (currentY / 1200f)).coerceIn(0.15f, 1.0f)
+            val deckScale = (1f + (currentY / 2000f)).coerceIn(0.85f, 1.0f)
+
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f),
-                contentAlignment = Alignment.Center
+                    .weight(1f)
+                    .offset { IntOffset(0, currentY.roundToInt()) }
+                    .scale(deckScale)
+                    .alpha(deckAlpha),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
             ) {
-                val totalCount = uris.size.coerceAtLeast(1)
-
-                // Background Stack Card 3 (if 3+ items)
-                if (totalCount >= 3) {
-                    Surface(
+                if (deckItems.isEmpty()) {
+                    Box(
                         modifier = Modifier
-                            .fillMaxWidth(0.72f)
-                            .aspectRatio(0.85f)
-                            .offset(y = 20.dp)
-                            .rotate(-8f)
-                            .scale(0.88f)
-                            .alpha(0.4f),
-                        shape = RoundedCornerShape(24.dp),
-                        color = Color(0xFF1C1E26),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF333846))
-                    ) {}
-                }
-
-                // Background Stack Card 2 (if 2+ items)
-                if (totalCount >= 2) {
-                    Surface(
+                            .fillMaxWidth(0.82f)
+                            .aspectRatio(0.88f)
+                            .clip(RoundedCornerShape(24.dp))
+                            .background(Color(0xFF191B24))
+                    )
+                } else if (deckItems.size == 1) {
+                    val item = deckItems[0]
+                    CoverFlowCard(
+                        item = item,
+                        absOffset = 0f,
                         modifier = Modifier
-                            .fillMaxWidth(0.75f)
-                            .aspectRatio(0.85f)
-                            .offset(y = 10.dp)
-                            .rotate(6f)
-                            .scale(0.94f)
-                            .alpha(0.7f),
-                        shape = RoundedCornerShape(24.dp),
-                        color = Color(0xFF222530),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF3E4354))
-                    ) {}
-                }
+                            .fillMaxWidth(0.82f)
+                            .aspectRatio(0.88f)
+                    )
+                } else {
+                    // Dynamic 3D Cover Flow Carousel
+                    HorizontalPager(
+                        state = pagerState,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(340.dp),
+                        contentPadding = PaddingValues(horizontal = 72.dp),
+                        pageSpacing = (-22).dp
+                    ) { page ->
+                        val item = deckItems.getOrNull(page)
+                        val pageOffset = ((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction)
+                        val absOffset = kotlin.math.abs(pageOffset).coerceAtMost(2.5f)
 
-                // Top Hero Card (Interactive drag target)
-                val currentY = dragY.value
-                val rotationAngle = (currentY / 60f).coerceIn(-15f, 15f)
-                val cardScale = (1f + (currentY / 1800f)).coerceIn(0.80f, 1.0f)
-                val cardAlpha = (1f + (currentY / 1200f)).coerceIn(0.2f, 1.0f)
+                        // 3D Perspective Rotation:
+                        // Left cards: positive rotationY (angles inward toward center)
+                        // Right cards: negative rotationY (angles inward toward center)
+                        val rotationY = (pageOffset * -46f).coerceIn(-54f, 54f)
+                        val scale = (1f - (absOffset * 0.16f)).coerceIn(0.70f, 1.0f)
+                        val alpha = (1f - (absOffset * 0.25f)).coerceIn(0.50f, 1.0f)
+                        val zIndex = 100f - absOffset * 10f
 
-                Box(
-                    modifier = Modifier
-                        .offset { IntOffset(0, currentY.roundToInt()) }
-                        .rotate(rotationAngle)
-                        .scale(cardScale)
-                        .alpha(cardAlpha)
-                        .fillMaxWidth(0.80f)
-                        .aspectRatio(0.85f)
-                        .shadow(28.dp, RoundedCornerShape(24.dp), spotColor = Color(0x66FF5722))
-                        .clip(RoundedCornerShape(24.dp))
-                        .background(Color(0xFF191B24))
-                        .border(1.5.dp, Color(0xFF3B4052), RoundedCornerShape(24.dp)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (heroBitmap != null) {
-                        Image(
-                            bitmap = heroBitmap!!.asImageBitmap(),
-                            contentDescription = fileName,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    } else if (!textPayload.isNullOrEmpty()) {
-                        // Text payload preview card
-                        Column(
+                        Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .padding(20.dp),
-                            verticalArrangement = Arrangement.Center,
-                            horizontalAlignment = Alignment.CenterHorizontally
+                                .zIndex(zIndex)
+                                .graphicsLayer {
+                                    this.rotationY = rotationY
+                                    this.scaleX = scale
+                                    this.scaleY = scale
+                                    this.alpha = alpha
+                                    this.cameraDistance = 16f * density.density
+                                },
+                            contentAlignment = Alignment.Center
                         ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Bolt,
-                                contentDescription = null,
-                                tint = Color(0xFFFF5722),
-                                modifier = Modifier.size(48.dp)
-                            )
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text(
-                                text = textPayload,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontFamily = FontFamily.Monospace,
-                                color = Color.White,
-                                maxLines = 5,
-                                overflow = TextOverflow.Ellipsis,
-                                textAlign = TextAlign.Center
-                            )
-                        }
-                    } else {
-                        // Document / Generic file card
-                        Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(20.dp),
-                            verticalArrangement = Arrangement.Center,
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Description,
-                                contentDescription = null,
-                                tint = Color(0xFFFF5722),
-                                modifier = Modifier.size(54.dp)
-                            )
-                            Spacer(modifier = Modifier.height(14.dp))
-                            Text(
-                                text = fileName,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                                textAlign = TextAlign.Center
-                            )
-                            if (fileSizeStr.isNotEmpty()) {
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Text(
-                                    text = fileSizeStr,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontFamily = FontFamily.Monospace,
-                                    color = Color(0xFF9E9E9E)
+                            if (item != null) {
+                                CoverFlowCard(
+                                    item = item,
+                                    absOffset = absOffset,
+                                    modifier = Modifier
+                                        .fillMaxWidth(0.92f)
+                                        .aspectRatio(0.86f)
                                 )
                             }
                         }
                     }
+                }
 
-                    // Stack Count Badge (Top-Right of Hero Card)
-                    if (totalCount > 1) {
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(12.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(Color(0xCC000000))
-                                .border(1.dp, Color(0x66FFFFFF), RoundedCornerShape(12.dp))
-                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Metadata Telemetry (Active Card Info)
+                val activeItem = deckItems.getOrNull(pagerState.currentPage)
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.padding(horizontal = 24.dp)
+                ) {
+                    Text(
+                        text = activeItem?.fileName ?: "Ready to flick",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(3.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            text = if (deckItems.size > 1) "PHOTO ${pagerState.currentPage + 1} OF ${deckItems.size}" else "READY TO TELEPORT",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFFF5722),
+                            fontSize = 11.sp
+                        )
+                        if (!activeItem?.fileSizeStr.isNullOrEmpty()) {
+                            Text(
+                                text = " • ${activeItem!!.fileSizeStr}",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontFamily = FontFamily.Monospace,
+                                color = Color(0xFF9E9E9E),
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+
+                    // Pagination indicator dots
+                    if (deckItems.size > 1) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = Icons.Rounded.PhotoLibrary,
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(13.dp)
-                                )
-                                Spacer(modifier = Modifier.width(5.dp))
-                                Text(
-                                    text = "$totalCount ITEMS",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 10.sp,
-                                    color = Color.White
+                            val maxDots = deckItems.size.coerceAtMost(10)
+                            for (i in 0 until maxDots) {
+                                val isSelected = i == pagerState.currentPage.coerceAtMost(maxDots - 1)
+                                Box(
+                                    modifier = Modifier
+                                        .padding(horizontal = 3.dp)
+                                        .size(if (isSelected) 6.dp else 4.dp)
+                                        .clip(CircleShape)
+                                        .background(if (isSelected) Color(0xFFFF5722) else Color(0x558892B0))
                                 )
                             }
                         }
@@ -596,6 +607,98 @@ fun SpatialFlickDeck(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun CoverFlowCard(
+    item: FlickCardItem,
+    absOffset: Float,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .shadow(
+                elevation = if (absOffset < 0.5f) 28.dp else 10.dp,
+                shape = RoundedCornerShape(24.dp),
+                spotColor = Color(0x66FF5722)
+            )
+            .clip(RoundedCornerShape(24.dp))
+            .background(Color(0xFF191B24))
+            .border(
+                1.5.dp,
+                if (absOffset < 0.5f) Color(0xFF4C5369) else Color(0xFF2E3342),
+                RoundedCornerShape(24.dp)
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        if (item.bitmap != null) {
+            Image(
+                bitmap = item.bitmap.asImageBitmap(),
+                contentDescription = item.fileName,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else if (item.isImage) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.PhotoLibrary,
+                    contentDescription = null,
+                    tint = Color(0x55FFFFFF),
+                    modifier = Modifier.size(48.dp)
+                )
+            }
+        } else {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(20.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Bolt,
+                    contentDescription = null,
+                    tint = Color(0xFFFF5722),
+                    modifier = Modifier.size(48.dp)
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = item.fileName,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontFamily = FontFamily.Monospace,
+                    color = Color.White,
+                    maxLines = 4,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
+
+        // Perspective lighting depth: angled side cards receive realistic ambient shadow tint
+        if (absOffset > 0.08f) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = (absOffset * 0.32f).coerceIn(0f, 0.44f)))
+            )
+        }
+
+        // Soft ground reflection / ambient rim at bottom
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(30.dp)
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(Color.Transparent, Color(0x44000000))
+                    )
+                )
+        )
     }
 }
 

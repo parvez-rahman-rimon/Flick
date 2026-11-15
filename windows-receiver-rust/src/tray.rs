@@ -492,13 +492,16 @@ pub fn trigger_sample_batch_landing() {
             "Screenshot_20261115-162829.png",
             "Screenshot_20261114-205317_1794738244271.png",
             "Screenshot_20261114-205317.png",
+            "Screenshot_20261108-105109.png",
+            "Screenshot_20261107-224614.png",
+            "Screenshot_20261107-163737.png",
         ];
         for c in candidates {
             let p = dl.join(c);
             if p.exists() {
                 batch.push(p);
             }
-            if batch.len() >= 3 {
+            if batch.len() >= 7 {
                 break;
             }
         }
