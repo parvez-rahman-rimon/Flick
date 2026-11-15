@@ -23,6 +23,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -71,10 +73,13 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -103,6 +108,7 @@ fun SpatialFlickDeck(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
+    val haptic = LocalHapticFeedback.current
 
     var heroBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var fileName by remember { mutableStateOf("Ready to flick") }
@@ -155,6 +161,9 @@ fun SpatialFlickDeck(
     fun executeFlick(isSingle: Boolean) {
         if (isFlicking) return
         isFlicking = true
+        try {
+            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        } catch (_: Exception) {}
         HapticHelper.triggerSpatialFlick(context)
 
         scope.launch {
@@ -212,6 +221,48 @@ fun SpatialFlickDeck(
         modifier = modifier
             .fillMaxSize()
             .background(Color(0xE6080A0E))
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                    var isUpwardDrag = false
+                    var totalDeltaY = 0f
+
+                    while (true) {
+                        val event = awaitPointerEvent(pass = PointerEventPass.Initial)
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        if (!change.pressed) break
+
+                        val deltaY = change.position.y - change.previousPosition.y
+                        totalDeltaY += deltaY
+
+                        // As soon as user swipes upward anywhere on screen (including over buttons!)
+                        if (totalDeltaY < -10f || isUpwardDrag) {
+                            isUpwardDrag = true
+                            change.consume()
+                            if (!isFlicking) {
+                                val newY = (dragY.value + deltaY).coerceAtMost(40f)
+                                scope.launch { dragY.snapTo(newY) }
+                            }
+                        }
+                    }
+
+                    if (isUpwardDrag) {
+                        if (dragY.value < -70f) {
+                            executeFlick(isSingle = false)
+                        } else {
+                            scope.launch {
+                                dragY.animateTo(
+                                    0f,
+                                    spring(
+                                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                                        stiffness = Spring.StiffnessMedium
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+            }
             .padding(horizontal = 24.dp, vertical = 20.dp),
         contentAlignment = Alignment.Center
     ) {
@@ -326,41 +377,7 @@ fun SpatialFlickDeck(
                         .shadow(28.dp, RoundedCornerShape(24.dp), spotColor = Color(0x66FF5722))
                         .clip(RoundedCornerShape(24.dp))
                         .background(Color(0xFF191B24))
-                        .border(1.5.dp, Color(0xFF3B4052), RoundedCornerShape(24.dp))
-                        .pointerInput(Unit) {
-                            detectVerticalDragGestures(
-                                onDragEnd = {
-                                    if (dragY.value < -260f) {
-                                        executeFlick(isSingle = false)
-                                    } else {
-                                        scope.launch {
-                                            dragY.animateTo(
-                                                0f,
-                                                spring(
-                                                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                                                    stiffness = Spring.StiffnessMedium
-                                                )
-                                            )
-                                        }
-                                    }
-                                },
-                                onDragCancel = {
-                                    scope.launch {
-                                        dragY.animateTo(0f)
-                                    }
-                                },
-                                onVerticalDrag = { change, dragAmount ->
-                                    change.consume()
-                                    // Upward dragging has smooth natural resistance
-                                    if (!isFlicking) {
-                                        val newY = (dragY.value + dragAmount).coerceAtMost(40f)
-                                        scope.launch {
-                                            dragY.snapTo(newY)
-                                        }
-                                    }
-                                }
-                            )
-                        },
+                        .border(1.5.dp, Color(0xFF3B4052), RoundedCornerShape(24.dp)),
                     contentAlignment = Alignment.Center
                 ) {
                     if (heroBitmap != null) {

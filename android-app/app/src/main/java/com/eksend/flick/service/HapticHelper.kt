@@ -33,7 +33,7 @@ object HapticHelper {
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 val attrs = VibrationAttributes.Builder()
-                    .setUsage(VibrationAttributes.USAGE_NOTIFICATION)
+                    .setUsage(VibrationAttributes.USAGE_TOUCH)
                     .build()
                 val effect = if (amplitudes != null && amplitudes.size == timings.size) {
                     VibrationEffect.createWaveform(timings, amplitudes, -1)
@@ -71,33 +71,27 @@ object HapticHelper {
             val vibrator = getVibrator(context) ?: return
             if (!vibrator.hasVibrator()) return
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && vibrator.areAllPrimitivesSupported(
-                    VibrationEffect.Composition.PRIMITIVE_SLOW_RISE,
-                    VibrationEffect.Composition.PRIMITIVE_LOW_TICK
-                )) {
-                // Silky smooth luxury haptic curve: soft fluid rise ending in a gentle, warm low tick
-                val comp = VibrationEffect.startComposition()
-                    .addPrimitive(VibrationEffect.Composition.PRIMITIVE_SLOW_RISE, 0.40f)
-                    .addPrimitive(VibrationEffect.Composition.PRIMITIVE_LOW_TICK, 0.55f)
-                    .compose()
-                vibrator.vibrate(comp)
-            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && vibrator.areAllPrimitivesSupported(
-                    VibrationEffect.Composition.PRIMITIVE_TICK
-                )) {
-                val comp = VibrationEffect.startComposition()
-                    .addPrimitive(VibrationEffect.Composition.PRIMITIVE_TICK, 0.45f)
-                    .compose()
-                vibrator.vibrate(comp)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                // 45ms velvety pulse with USAGE_TOUCH (guaranteed execution even when notification vibrations are OFF)
+                val effect = VibrationEffect.createOneShot(45, VibrationEffect.DEFAULT_AMPLITUDE)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    val attrs = VibrationAttributes.Builder()
+                        .setUsage(VibrationAttributes.USAGE_TOUCH)
+                        .build()
+                    vibrator.vibrate(effect, attrs)
+                } else {
+                    vibrator.vibrate(effect)
+                }
             } else {
-                // Soft bell-curve waveform: gentle smooth swell, zero harsh mechanical buzzing
-                performVibration(
-                    context,
-                    longArrayOf(0, 16, 28, 18),
-                    intArrayOf(0, 45, 125, 40)
-                )
+                @Suppress("DEPRECATION")
+                vibrator.vibrate(45)
             }
         } catch (_: Exception) {
-            performVibration(context, longArrayOf(0, 25), intArrayOf(0, 85))
+            try {
+                val vibrator = getVibrator(context)
+                @Suppress("DEPRECATION")
+                vibrator?.vibrate(45)
+            } catch (_: Exception) {}
         }
     }
 
