@@ -189,7 +189,21 @@ fn main() {
                             "BATCH" => tray::trigger_sample_batch_landing(),
                             "LANDING" => tray::trigger_sample_landing(),
                             "URL" => landing::show_landing_url("https://github.com/torvalds/linux".to_string()),
-                            "TEXT" => landing::show_landing_text("Flick Liquid Glass: Beautiful frosted dark mica preview for your clipboard text!"),
+                            "TEXT" => landing::show_landing_text("Flick Studio Card: Clean high-DPI typography for your clipboard!"),
+                            "PDF" => {
+                                if let Some(user_dirs) = std::env::var_os("USERPROFILE") {
+                                    let dl = std::path::Path::new(&user_dirs).join("Downloads");
+                                    if let Ok(entries) = std::fs::read_dir(dl) {
+                                        for entry in entries.flatten() {
+                                            let p = entry.path();
+                                            if p.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase() == "pdf" {
+                                                landing::show_landing_files(vec![p]);
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                             "DASHBOARD" => gui::open_or_show_dashboard(false),
                             "PAIR" => gui::open_or_show_dashboard(true),
                             c if c.starts_with("SOUND:") => {

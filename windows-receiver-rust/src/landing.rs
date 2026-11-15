@@ -589,7 +589,12 @@ unsafe extern "system" fn landing_wnd_proc(
                                 }
                                 LandingItem::Files { paths, .. } => {
                                     if let Some(first_path) = paths.first() {
-                                        show_file_in_explorer(first_path);
+                                        let ext = first_path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+                                        if ext == "pdf" || matches!(ext.as_str(), "mp4" | "mkv" | "mov" | "avi" | "webm") {
+                                            open_file_directly(first_path);
+                                        } else {
+                                            show_file_in_explorer(first_path);
+                                        }
                                     }
                                     trigger_dismiss();
                                 }
@@ -648,7 +653,12 @@ unsafe extern "system" fn landing_wnd_proc(
                         }
                         LandingItem::Files { paths, .. } => {
                             if let Some(first_path) = paths.first() {
-                                show_file_in_explorer(first_path);
+                                let ext = first_path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+                                if ext == "pdf" || matches!(ext.as_str(), "mp4" | "mkv" | "mov" | "avi" | "webm") {
+                                    open_file_directly(first_path);
+                                } else {
+                                    show_file_in_explorer(first_path);
+                                }
                             }
                             trigger_dismiss();
                         }
@@ -1616,6 +1626,21 @@ fn open_url_in_browser(url: &str) {
     }
 }
 
+fn open_file_directly(path: &Path) {
+    let path_wide: Vec<u16> = OsStr::new(path.as_os_str()).encode_wide().chain(Some(0)).collect();
+    let op_wide: Vec<u16> = OsStr::new("open").encode_wide().chain(Some(0)).collect();
+    unsafe {
+        ShellExecuteW(
+            0 as HWND,
+            op_wide.as_ptr(),
+            path_wide.as_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            SW_SHOWNORMAL,
+        );
+    }
+}
+
 fn show_file_in_explorer(path: &Path) {
     let param = format!("/select,\"{}\"", path.display());
     let param_wide: Vec<u16> = OsStr::new(&param).encode_wide().chain(Some(0)).collect();
@@ -1736,7 +1761,18 @@ unsafe fn draw_glass_text(
     }
 }
 
-fn fill_glass_rounded_rect(
+#[inline(always)]
+fn set_bgra(buffer: &mut [u8], p_idx: usize, rgb: u32, a: u8) {
+    let r = ((rgb >> 16) & 0xFF) as u8;
+    let g = ((rgb >> 8) & 0xFF) as u8;
+    let b = (rgb & 0xFF) as u8;
+    buffer[p_idx + 0] = b;
+    buffer[p_idx + 1] = g;
+    buffer[p_idx + 2] = r;
+    buffer[p_idx + 3] = a;
+}
+
+fn fill_rounded_box(
     buffer: &mut [u8],
     canvas_w: i32,
     canvas_h: i32,
@@ -1745,13 +1781,9 @@ fn fill_glass_rounded_rect(
     x1: i32,
     y1: i32,
     r: i32,
-    bg_b: u8,
-    bg_g: u8,
-    bg_r: u8,
+    bg_rgb: u32,
     bg_a: u8,
-    border_b: u8,
-    border_g: u8,
-    border_r: u8,
+    border_rgb: u32,
     border_a: u8,
 ) {
     let r_f = r as f32;
@@ -1791,29 +1823,22 @@ fn fill_glass_rounded_rect(
             }
 
             let is_border = if in_corner {
-                dist_from_corner_center >= (r_f - 1.5)
+                dist_from_corner_center >= (r_f - 1.2)
             } else {
                 x == x0 || x == x1 - 1 || y == y0 || y == y1 - 1
             };
 
             let p_idx = row + (x as usize) * 4;
-
             if is_border {
-                buffer[p_idx + 0] = border_b;
-                buffer[p_idx + 1] = border_g;
-                buffer[p_idx + 2] = border_r;
-                buffer[p_idx + 3] = border_a;
+                set_bgra(buffer, p_idx, border_rgb, border_a);
             } else {
-                buffer[p_idx + 0] = bg_b;
-                buffer[p_idx + 1] = bg_g;
-                buffer[p_idx + 2] = bg_r;
-                buffer[p_idx + 3] = bg_a;
+                set_bgra(buffer, p_idx, bg_rgb, bg_a);
             }
         }
     }
 }
 
-fn render_ambient_glass_shadow(
+fn render_ambient_card_shadow(
     buffer: &mut [u8],
     canvas_w: i32,
     canvas_h: i32,
@@ -1823,8 +1848,8 @@ fn render_ambient_glass_shadow(
     y1: i32,
     r: i32,
 ) {
-    let shadow_pad = 28;
-    let offset_y = 10;
+    let shadow_pad = 12;
+    let offset_y = 2;
     let r_f = r as f32;
 
     let min_x = (x0 - shadow_pad).max(0);
@@ -1864,7 +1889,7 @@ fn render_ambient_glass_shadow(
 
             if dist > 0.0 && dist <= shadow_pad as f32 {
                 let norm = 1.0 - (dist / shadow_pad as f32);
-                let shadow_a = (norm * norm * 48.0) as u8; // Soft natural paper elevation
+                let shadow_a = (norm * norm * 24.0) as u8; // Crisp, subtle, zero muddy smear
                 let p_idx = row + (x as usize) * 4;
                 if shadow_a > buffer[p_idx + 3] {
                     buffer[p_idx + 0] = 0;
@@ -1896,15 +1921,15 @@ fn render_floating_glass_card(
     let y1 = y0 + card_h;
     let r = 18;
 
-    // 1. Soft natural paper ambient elevation shadow
-    render_ambient_glass_shadow(buffer, canvas_w, canvas_h, x0, y0, x1, y1, r);
+    // 1. Subtle, clean ambient drop shadow (no dirty bars)
+    render_ambient_card_shadow(buffer, canvas_w, canvas_h, x0, y0, x1, y1, r);
 
-    // 2. 100% Solid Tactile Paper Studio Card Body (#FAF9F8 Warm Cotton Art Paper, #E0E2E4 subtle paper border)
-    fill_glass_rounded_rect(
+    // 2. 100% Solid Pure Studio White Card (#FFFFFF) with crisp border (#E2E8F0)
+    fill_rounded_box(
         buffer, canvas_w, canvas_h,
         x0, y0, x1, y1, r,
-        248, 249, 250, 255, // 100% Opaque Warm Paper White
-        228, 226, 224, 255, // Crisp 1.5px Paper Border
+        0xFFFFFF, 255, // Pure White
+        0xE2E8F0, 255, // Crisp 1.2px Border
     );
 
     // Register card in projected_cards for click / drag interaction!
@@ -1922,22 +1947,22 @@ fn render_floating_glass_card(
     unsafe {
         match item {
             LandingItem::Url { url } => {
-                // Tactile Paper Badge: "🔗 LINK"
+                // Link Pill Badge: Soft Sky Blue (#EFF6FF), Sky Border (#BFDBFE)
                 let pill_x0 = x0 + 24;
                 let pill_y0 = y0 + 20;
                 let pill_x1 = x0 + 94;
                 let pill_y1 = y0 + 44;
-                fill_glass_rounded_rect(
+                fill_rounded_box(
                     buffer, canvas_w, canvas_h,
                     pill_x0, pill_y0, pill_x1, pill_y1, 10,
-                    246, 242, 238, 255, // Soft cool slate paper (#EEF2F6)
-                    225, 213, 203, 255, // #CBD5E1
+                    0xEFF6FF, 255,
+                    0xBFDBFE, 255,
                 );
 
                 let badge_font = create_gdi_font(11, true, false);
                 draw_glass_text(
                     hdc, buffer, canvas_w, canvas_h,
-                    "🔗 LINK", badge_font, 0x000284C7,
+                    "🔗 LINK", badge_font, 0x001D4ED8, // Rich Royal Blue
                     RECT { left: pill_x0, top: pill_y0, right: pill_x1, bottom: pill_y1 },
                     DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
                 );
@@ -1951,7 +1976,7 @@ fn render_floating_glass_card(
                     DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
                 );
 
-                // Extracted Domain Title (Deep printed charcoal ink #0F172A)
+                // Extracted Domain Title (Deep charcoal black #0F172A)
                 let domain = extract_domain(url);
                 let title_font = create_gdi_font(22, true, false);
                 draw_glass_text(
@@ -1961,25 +1986,25 @@ fn render_floating_glass_card(
                     DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX,
                 );
 
-                // Full URL Subtitle (Vibrant clean link blue #0284C7)
+                // Full URL Subtitle (Clear Hyperlink Blue #2563EB)
                 let url_font = create_gdi_font(13, false, false);
                 draw_glass_text(
                     hdc, buffer, canvas_w, canvas_h,
-                    url, url_font, 0x000284C7,
+                    url, url_font, 0x002563EB,
                     RECT { left: x0 + 24, top: y0 + 88, right: x1 - 24, bottom: y0 + 114 },
                     DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX,
                 );
 
-                // Action CTA Button: "Open in Browser ↗" (Flick Electric Orange #F97316)
+                // Action CTA Button: "Open in Browser ↗" (Flick Electric Orange #FF5722)
                 let btn_x0 = x0 + 24;
                 let btn_y0 = y0 + 134;
                 let btn_x1 = x0 + 195;
                 let btn_y1 = y0 + 172;
-                fill_glass_rounded_rect(
+                fill_rounded_box(
                     buffer, canvas_w, canvas_h,
                     btn_x0, btn_y0, btn_x1, btn_y1, 12,
-                    22, 115, 249, 255, // Vibrant Orange #F97316
-                    12, 88, 234, 255,  // Deep Orange Border #EA580C
+                    0xFF5722, 255, // Electric Orange
+                    0xEA580C, 255, // Deep Orange Border
                 );
 
                 let btn_font = create_gdi_font(12, true, false);
@@ -2005,29 +2030,29 @@ fn render_floating_glass_card(
                 DeleteObject(btn_font as _);
             }
             LandingItem::Text { preview, length } => {
-                // Tactile Paper Badge: "📋 CLIPBOARD"
+                // Clipboard Pill Badge: Soft Mint (#ECFDF5), Emerald Border (#A7F3D0)
                 let pill_x0 = x0 + 24;
                 let pill_y0 = y0 + 20;
                 let pill_x1 = x0 + 130;
                 let pill_y1 = y0 + 44;
-                fill_glass_rounded_rect(
+                fill_rounded_box(
                     buffer, canvas_w, canvas_h,
                     pill_x0, pill_y0, pill_x1, pill_y1, 10,
-                    245, 253, 236, 255, // Mint Paper (#ECFDF5)
-                    208, 243, 167, 255, // Soft Emerald Border (#A7F3D0)
+                    0xECFDF5, 255,
+                    0xA7F3D0, 255,
                 );
 
                 let badge_font = create_gdi_font(11, true, false);
                 draw_glass_text(
                     hdc, buffer, canvas_w, canvas_h,
-                    "📋 CLIPBOARD", badge_font, 0x00059669,
+                    "📋 CLIPBOARD", badge_font, 0x00065F46, // Deep Emerald
                     RECT { left: pill_x0, top: pill_y0, right: pill_x1, bottom: pill_y1 },
                     DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
                 );
 
                 // Right Char Count
                 let hint_font = create_gdi_font(11, false, false);
-                let count_str = format!("{} CHARS • COPIED", length);
+                let count_str = format!("{} CHARACTERS", length);
                 draw_glass_text(
                     hdc, buffer, canvas_w, canvas_h,
                     &count_str, hint_font, 0x0064748B,
@@ -2035,7 +2060,7 @@ fn render_floating_glass_card(
                     DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
                 );
 
-                // Body Text (Deep charcoal slate #1E293B, highly readable)
+                // Body Text (Deep charcoal #1E293B)
                 let body_font = create_gdi_font(14, false, false);
                 draw_glass_text(
                     hdc, buffer, canvas_w, canvas_h,
@@ -2059,22 +2084,34 @@ fn render_floating_glass_card(
                 DeleteObject(status_font as _);
             }
             LandingItem::Files { primary_name, count, total_bytes, .. } => {
-                // Paper Badge: "📁 FILE READY"
+                let ext = primary_name.rsplit('.').next().unwrap_or("").to_lowercase();
+                let is_pdf = ext == "pdf";
+                let is_video = matches!(ext.as_str(), "mp4" | "mkv" | "mov" | "avi" | "webm");
+
+                let (badge_text, badge_bg, badge_border, badge_text_col, btn_text, btn_bg, btn_border) = if is_pdf {
+                    ("📄 PDF DOCUMENT", 0xFEF2F2, 0xFECACA, 0x00DC2626, "Open PDF ↗", 0xDC2626, 0xB91C1C)
+                } else if is_video {
+                    ("🎬 VIDEO FILE", 0xF5F3FF, 0xDDD6FE, 0x007C3AED, "Play Video ▶", 0x7C3AED, 0x6D28D9)
+                } else {
+                    ("📁 FILE READY", 0xF1F5F9, 0xCBD5E1, 0x00334155, "Show in Explorer ↗", 0x0F172A, 0x020617)
+                };
+
+                // Pill Badge
                 let pill_x0 = x0 + 24;
                 let pill_y0 = y0 + 20;
-                let pill_x1 = x0 + 130;
+                let pill_x1 = x0 + if is_pdf { 145 } else if is_video { 125 } else { 120 };
                 let pill_y1 = y0 + 44;
-                fill_glass_rounded_rect(
+                fill_rounded_box(
                     buffer, canvas_w, canvas_h,
                     pill_x0, pill_y0, pill_x1, pill_y1, 10,
-                    254, 243, 199, 255, // Amber Paper (#FEF3C7)
-                    253, 230, 138, 255, // #FDE68A
+                    badge_bg, 255,
+                    badge_border, 255,
                 );
 
                 let badge_font = create_gdi_font(11, true, false);
                 draw_glass_text(
                     hdc, buffer, canvas_w, canvas_h,
-                    "📁 FILE READY", badge_font, 0x00D97706,
+                    badge_text, badge_font, badge_text_col,
                     RECT { left: pill_x0, top: pill_y0, right: pill_x1, bottom: pill_y1 },
                     DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
                 );
@@ -2102,8 +2139,12 @@ fn render_floating_glass_card(
                 let sub_font = create_gdi_font(13, false, false);
                 let count_str = if *count > 1 {
                     format!("{} files ready to paste or drag", count)
+                } else if is_pdf {
+                    format!("PDF Document • {}", size_str)
+                } else if is_video {
+                    format!("Video • {}", size_str)
                 } else {
-                    "Ready to paste or open".to_string()
+                    format!("File ready to paste or open • {}", size_str)
                 };
                 draw_glass_text(
                     hdc, buffer, canvas_w, canvas_h,
@@ -2112,22 +2153,22 @@ fn render_floating_glass_card(
                     DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
                 );
 
-                // Action Button: "Show in Explorer ↗"
+                // Action Button
                 let btn_x0 = x0 + 24;
                 let btn_y0 = y0 + 134;
-                let btn_x1 = x0 + 195;
+                let btn_x1 = x0 + if is_pdf || is_video { 160 } else { 195 };
                 let btn_y1 = y0 + 172;
-                fill_glass_rounded_rect(
+                fill_rounded_box(
                     buffer, canvas_w, canvas_h,
                     btn_x0, btn_y0, btn_x1, btn_y1, 12,
-                    241, 245, 249, 255, // Slate Paper (#F1F5F9)
-                    203, 213, 225, 255, // Border #CBD5E1
+                    btn_bg, 255,
+                    btn_border, 255,
                 );
 
                 let btn_font = create_gdi_font(12, true, false);
                 draw_glass_text(
                     hdc, buffer, canvas_w, canvas_h,
-                    "Show in Explorer ↗", btn_font, 0x001E293B,
+                    btn_text, btn_font, 0x00FFFFFF,
                     RECT { left: btn_x0, top: btn_y0, right: btn_x1, bottom: btn_y1 },
                     DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
                 );
