@@ -175,15 +175,13 @@ static ACTIVE_STATE: Mutex<Option<Arc<Mutex<LandingState>>>> = Mutex::new(None);
 fn is_visual_ext(ext: &str) -> bool {
     matches!(
         ext,
-        "png" | "jpg" | "jpeg" | "webp" | "bmp" | "gif" | "pdf" | "mp4" | "mkv" | "mov" | "avi" | "webm"
+        "png" | "jpg" | "jpeg" | "webp" | "bmp" | "gif"
     )
 }
 
 fn get_file_visual_type(ext: &str) -> Option<CardVisualType> {
     match ext {
         "png" | "jpg" | "jpeg" | "webp" | "bmp" | "gif" => Some(CardVisualType::Photo),
-        "pdf" => Some(CardVisualType::Pdf),
-        "mp4" | "mkv" | "mov" | "avi" | "webm" => Some(CardVisualType::Video),
         _ => None,
     }
 }
@@ -2531,7 +2529,7 @@ fn render_floating_glass_card(
                 // Pill Badge
                 let pill_x0 = x0 + 24;
                 let pill_y0 = y0 + 20;
-                let pill_x1 = x0 + if is_pdf { 145 } else if is_video { 125 } else { 120 };
+                let pill_x1 = x0 + if is_pdf { 165 } else if is_video { 140 } else { 135 };
                 let pill_y1 = y0 + 44;
                 fill_rounded_box(
                     buffer, canvas_w, canvas_h,
@@ -2570,7 +2568,7 @@ fn render_floating_glass_card(
                 // File Count Subtitle (#64748B)
                 let sub_font = create_gdi_font(13, false, false);
                 let count_str = if *count > 1 {
-                    format!("{} files ready to paste or drag", count)
+                    format!("{} files ready to paste or drag • {}", count, size_str)
                 } else if is_pdf {
                     format!("PDF Document • {}", size_str)
                 } else if is_video {
@@ -2588,7 +2586,7 @@ fn render_floating_glass_card(
                 // Action Button
                 let btn_x0 = x0 + 24;
                 let btn_y0 = y0 + 134;
-                let btn_x1 = x0 + if is_pdf || is_video { 160 } else { 195 };
+                let btn_x1 = x0 + if is_pdf { 150 } else if is_video { 150 } else { 185 };
                 let btn_y1 = y0 + 172;
                 fill_rounded_box(
                     buffer, canvas_w, canvas_h,
@@ -2603,6 +2601,14 @@ fn render_floating_glass_card(
                     btn_text, btn_font, 0x00FFFFFF,
                     RECT { left: btn_x0, top: btn_y0, right: btn_x1, bottom: btn_y1 },
                     DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
+                );
+
+                // Subtle footer hint: "Esc to close"
+                draw_glass_text(
+                    hdc, buffer, canvas_w, canvas_h,
+                    "Esc to close", hint_font, 0x0094A3B8,
+                    RECT { left: x1 - 140, top: y0 + 144, right: x1 - 24, bottom: y0 + 166 },
+                    DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
                 );
 
                 DeleteObject(badge_font as _);
