@@ -160,7 +160,7 @@ fun SpatialFlickDeck(
                     val isVid = mimeType.startsWith("video/")
                     val isPdf = mimeType == "application/pdf" || name.endsWith(".pdf", ignoreCase = true)
 
-                    val bmp = loadMediaThumbnail(context, uri, mimeType, name, maxDimension = 800)
+                    val bmp = loadMediaThumbnail(context, uri, mimeType, name, maxDimension = 1080)
                     FlickCardItem(
                         uri = uri,
                         fileName = name,
@@ -952,25 +952,26 @@ private fun loadMediaThumbnail(
                 }
             }
             mimeType.startsWith("video/") -> {
-                val sysThumb = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    try {
-                        context.contentResolver.loadThumbnail(uri, android.util.Size(maxDimension, maxDimension), null)
-                    } catch (_: Exception) {
+                val retriever = android.media.MediaMetadataRetriever()
+                try {
+                    retriever.setDataSource(context, uri)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                        retriever.getScaledFrameAtTime(-1, android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC, maxDimension, maxDimension)
+                    } else {
+                        null
+                    } ?: retriever.getFrameAtTime(0, android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                } catch (_: Exception) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        try {
+                            context.contentResolver.loadThumbnail(uri, android.util.Size(maxDimension, maxDimension), null)
+                        } catch (_: Exception) {
+                            null
+                        }
+                    } else {
                         null
                     }
-                } else {
-                    null
-                }
-                sysThumb ?: run {
-                    val retriever = android.media.MediaMetadataRetriever()
-                    try {
-                        retriever.setDataSource(context, uri)
-                        retriever.getFrameAtTime(0, android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
-                    } catch (_: Exception) {
-                        null
-                    } finally {
-                        try { retriever.release() } catch (_: Exception) {}
-                    }
+                } finally {
+                    try { retriever.release() } catch (_: Exception) {}
                 }
             }
             mimeType == "application/pdf" || fileName.endsWith(".pdf", ignoreCase = true) -> {

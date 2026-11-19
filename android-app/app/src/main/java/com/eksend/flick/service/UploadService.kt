@@ -285,14 +285,15 @@ class UploadService : Service() {
     private fun generateThumbnail(uri: Uri, mimeType: String): String? {
         val isImage = mimeType.startsWith("image/")
         val isVideo = mimeType.startsWith("video/")
-        if (!isImage && !isVideo) return null
+        val isPdf = mimeType == "application/pdf"
+        if (!isImage && !isVideo && !isPdf) return null
 
         return try {
             val thumbDir = java.io.File(cacheDir, "thumbnails").apply { mkdirs() }
             val thumbFile = java.io.File(thumbDir, "${java.util.UUID.randomUUID()}.jpg")
 
             var bitmap: Bitmap? = null
-            val targetDimension = 720 // High definition 720p thumbnail for crisp display on OLED/high-DPI screens
+            val targetDimension = 1080 // Full HD 1080p crisp rendering for modern high-DPI displays
 
             if (isImage) {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
@@ -322,17 +323,42 @@ class UploadService : Service() {
                     }
                 }
             } else if (isVideo) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    try {
-                        bitmap = contentResolver.loadThumbnail(uri, android.util.Size(targetDimension, targetDimension), null)
-                    } catch (_: Exception) {}
+                // Decode directly from video stream to avoid low-res MediaStore caches
+                val retriever = android.media.MediaMetadataRetriever()
+                try {
+                    retriever.setDataSource(applicationContext, uri)
+                    bitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                        retriever.getScaledFrameAtTime(-1, android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC, targetDimension, targetDimension)
+                    } else {
+                        null
+                    } ?: retriever.getFrameAtTime(0, android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                } catch (_: Exception) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        try {
+                            bitmap = contentResolver.loadThumbnail(uri, android.util.Size(targetDimension, targetDimension), null)
+                        } catch (_: Exception) {}
+                    }
+                } finally {
+                    try { retriever.release() } catch (_: Exception) {}
                 }
-                if (bitmap == null) {
+            } else if (isPdf) {
+                contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
                     try {
-                        val retriever = android.media.MediaMetadataRetriever()
-                        retriever.setDataSource(applicationContext, uri)
-                        bitmap = retriever.getFrameAtTime(0, android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
-                        retriever.release()
+                        val renderer = android.graphics.pdf.PdfRenderer(pfd)
+                        if (renderer.pageCount > 0) {
+                            val page = renderer.openPage(0)
+                            val scale = targetDimension.toFloat() / maxOf(page.width, page.height).coerceAtLeast(1)
+                            val targetW = (page.width * scale).toInt().coerceAtLeast(1)
+                            val targetH = (page.height * scale).toInt().coerceAtLeast(1)
+                            val bmp = Bitmap.createBitmap(targetW, targetH, Bitmap.Config.ARGB_8888)
+                            bmp.eraseColor(android.graphics.Color.WHITE)
+                            page.render(bmp, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                            page.close()
+                            renderer.close()
+                            bitmap = bmp
+                        } else {
+                            renderer.close()
+                        }
                     } catch (_: Exception) {}
                 }
             }
@@ -352,7 +378,7 @@ class UploadService : Service() {
                 }
 
                 java.io.FileOutputStream(thumbFile).use { out ->
-                    targetBmp.compress(Bitmap.CompressFormat.JPEG, 92, out)
+                    targetBmp.compress(Bitmap.CompressFormat.JPEG, 95, out)
                 }
                 thumbFile.absolutePath
             } else {

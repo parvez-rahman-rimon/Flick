@@ -839,7 +839,7 @@ fun BentoHistoryCard(
                 .fillMaxWidth()
                 .padding(8.dp)
         ) {
-            // Viewfinder Preview Window
+            // Viewfinder Preview Window (Clean, unblocked preview)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -852,29 +852,6 @@ fun BentoHistoryCard(
                     record = record,
                     modifier = Modifier.fillMaxSize()
                 )
-
-                // RTT Latency Badge (Top-Right)
-                Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = Color(0xD90B0C0E),
-                    border = androidx.compose.foundation.BorderStroke(
-                        1.dp,
-                        MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
-                    ),
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(6.dp)
-                ) {
-                    Text(
-                        text = "${record.elapsedMs} MS",
-                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
-                        style = MaterialTheme.typography.labelSmall,
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 9.sp,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
             }
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -928,8 +905,19 @@ fun BentoHistoryCard(
                 overflow = TextOverflow.Ellipsis
             )
 
+            val sizeAndDuration = if (record.elapsedMs > 0) {
+                val durationText = if (record.elapsedMs >= 1000) {
+                    String.format(java.util.Locale.US, "%.1fs", record.elapsedMs / 1000.0)
+                } else {
+                    "${record.elapsedMs}ms"
+                }
+                "${formatBytes(record.bytes)} • $durationText"
+            } else {
+                formatBytes(record.bytes)
+            }
+
             Text(
-                text = formatBytes(record.bytes),
+                text = sizeAndDuration,
                 style = MaterialTheme.typography.labelSmall,
                 fontFamily = FontFamily.Monospace,
                 fontSize = 9.sp,
@@ -978,7 +966,7 @@ fun TransferThumbnail(
                     bitmap = b.asImageBitmap(),
                     contentDescription = record.fileName,
                     contentScale = ContentScale.Crop,
-                    filterQuality = FilterQuality.Medium,
+                    filterQuality = FilterQuality.High,
                     modifier = Modifier.fillMaxSize()
                 )
                 if (isVideo) {
