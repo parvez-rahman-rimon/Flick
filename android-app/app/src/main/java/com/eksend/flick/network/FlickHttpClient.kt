@@ -316,7 +316,7 @@ object FlickHttpClient {
     ): Result<UploadResult> {
         val client = getOrCreateClient(pcSpkiPin)
             .newBuilder()
-            .connectTimeout(10, TimeUnit.SECONDS)
+            .connectTimeout(3, TimeUnit.SECONDS)
             .writeTimeout(0, TimeUnit.MILLISECONDS) // 0 disables write timeout for large streaming uploads
             .readTimeout(180, TimeUnit.SECONDS)
             .build()

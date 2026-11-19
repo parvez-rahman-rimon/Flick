@@ -16,14 +16,14 @@ object PcAutoRouter {
     suspend fun resolveTargetIp(context: Context, pc: PairedPc): String? = withContext(Dispatchers.IO) {
         val prefs = FlickPreferences(context)
 
-        // Step 1: Fast Path (1200ms cached IP mTLS ping)
+        // Step 1: Fast Path (600ms cached IP mTLS ping)
         if (pc.lastKnownIp.isNotBlank()) {
             val fastPingResult = FlickHttpClient.ping(
                 ip = pc.lastKnownIp,
                 port = pc.port,
                 authToken = pc.authToken,
                 pcSpkiPin = pc.pcSpkiPin,
-                connectTimeoutMs = 1200
+                connectTimeoutMs = 600
             )
             if (fastPingResult.isSuccess) {
                 return@withContext pc.lastKnownIp
@@ -38,7 +38,7 @@ object PcAutoRouter {
                 port = pc.port,
                 authToken = pc.authToken,
                 pcSpkiPin = pc.pcSpkiPin,
-                connectTimeoutMs = 1200
+                connectTimeoutMs = 600
             )
             if (livePingResult.isSuccess) {
                 prefs.updateLastKnownIp(pc.pcId, liveDiscoveredIp)
@@ -46,7 +46,7 @@ object PcAutoRouter {
             }
         }
 
-        // Step 2: Authenticated UDP Discovery Beacon Fallback (<= 2500ms)
+        // Step 2: Authenticated UDP Discovery Beacon Fallback (<= 1000ms)
         if (prefs.isAutoUpdateIpEnabled) {
             val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
             val multicastLock = try {
@@ -63,11 +63,11 @@ object PcAutoRouter {
                     reuseAddress = true
                     broadcast = true
                     bind(InetSocketAddress(45454))
-                    soTimeout = 2200
+                    soTimeout = 1000
                 }
                 val buffer = ByteArray(4096)
                 val packet = DatagramPacket(buffer, buffer.size)
-                val endTime = System.currentTimeMillis() + 2200
+                val endTime = System.currentTimeMillis() + 1000
 
                 while (System.currentTimeMillis() < endTime) {
                     try {

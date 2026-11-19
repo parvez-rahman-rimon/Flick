@@ -148,7 +148,7 @@ object HapticHelper {
         )
 
         Handler(Looper.getMainLooper()).post {
-            Toast.makeText(context, "✅ Paired with $pcName", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Paired with $pcName", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -161,7 +161,7 @@ object HapticHelper {
         )
 
         Handler(Looper.getMainLooper()).post {
-            Toast.makeText(context, "❌ $message", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
         }
     }
 }

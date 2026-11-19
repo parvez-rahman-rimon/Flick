@@ -101,6 +101,23 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import android.util.LruCache
+
+object ThumbnailCache {
+    private val maxMemory = (Runtime.getRuntime().maxMemory() / 1024).toInt()
+    private val cacheSize = (maxMemory / 8).coerceAtLeast(1024)
+    private val lru = object : LruCache<String, Bitmap>(cacheSize) {
+        override fun sizeOf(key: String, value: Bitmap): Int {
+            return (value.byteCount / 1024).coerceAtLeast(1)
+        }
+    }
+
+    fun get(path: String): Bitmap? = lru.get(path)
+
+    fun put(path: String, bitmap: Bitmap) {
+        lru.put(path, bitmap)
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -628,7 +645,10 @@ fun HomeScreen(
                     }
                 } else {
                     val rows = recentTransfers.take(6).chunked(2)
-                    items(rows) { rowRecords ->
+                    items(
+                        items = rows,
+                        key = { row -> row.joinToString("-") { it.id } }
+                    ) { rowRecords ->
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -932,21 +952,46 @@ fun TransferThumbnail(
     record: TransferRecord,
     modifier: Modifier = Modifier
 ) {
-    var bitmap by remember(record.id, record.thumbnailPath) { mutableStateOf<Bitmap?>(null) }
+    val cachedBitmap = remember(record.thumbnailPath) {
+        record.thumbnailPath?.let { ThumbnailCache.get(it) }
+    }
+    var bitmap by remember(record.thumbnailPath) { mutableStateOf(cachedBitmap) }
 
     LaunchedEffect(record.id, record.thumbnailPath) {
         val path = record.thumbnailPath
-        if (!path.isNullOrEmpty()) {
-            withContext(Dispatchers.IO) {
-                try {
-                    val file = File(path)
-                    if (file.exists()) {
-                        val options = BitmapFactory.Options().apply {
-                            inPreferredConfig = Bitmap.Config.ARGB_8888
+        if (!path.isNullOrEmpty() && bitmap == null) {
+            val fromCache = ThumbnailCache.get(path)
+            if (fromCache != null) {
+                bitmap = fromCache
+            } else {
+                withContext(Dispatchers.IO) {
+                    try {
+                        val file = File(path)
+                        if (file.exists()) {
+                            // Subsample to viewfinder size (~320px height) using RGB_565 to guarantee smooth 120 FPS scrolling
+                            val boundsOptions = BitmapFactory.Options().apply {
+                                inJustDecodeBounds = true
+                            }
+                            BitmapFactory.decodeFile(file.absolutePath, boundsOptions)
+                            var sampleSize = 1
+                            val targetH = 320
+                            if (boundsOptions.outHeight > targetH) {
+                                sampleSize = boundsOptions.outHeight / targetH
+                            }
+                            val decodeOptions = BitmapFactory.Options().apply {
+                                inSampleSize = sampleSize.coerceAtLeast(1)
+                                inPreferredConfig = Bitmap.Config.RGB_565
+                            }
+                            val decoded = BitmapFactory.decodeFile(file.absolutePath, decodeOptions)
+                            if (decoded != null) {
+                                ThumbnailCache.put(path, decoded)
+                                withContext(Dispatchers.Main) {
+                                    bitmap = decoded
+                                }
+                            }
                         }
-                        bitmap = BitmapFactory.decodeFile(file.absolutePath, options)
-                    }
-                } catch (_: Exception) {}
+                    } catch (_: Exception) {}
+                }
             }
         }
     }

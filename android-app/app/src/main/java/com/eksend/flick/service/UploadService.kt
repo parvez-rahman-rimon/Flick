@@ -102,9 +102,10 @@ class UploadService : Service() {
 
         serviceScope.launch {
             // 1. Resolve Target IP with automatic ping & fallback
-            val targetIp = PcAutoRouter.resolveTargetIp(applicationContext, pc) ?: pc.lastKnownIp
-            if (targetIp.isBlank()) {
-                HapticHelper.triggerError(applicationContext, "${pc.pcName} is offline or unreachable on Wi-Fi")
+            val targetIp = PcAutoRouter.resolveTargetIp(applicationContext, pc)
+            if (targetIp.isNullOrBlank()) {
+                HapticHelper.triggerError(applicationContext, "${pc.pcName} is offline or Flick is not running")
+                UploadProgressBus.clear()
                 stopSelf()
                 return@launch
             }

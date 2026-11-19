@@ -274,17 +274,28 @@ fun SpatialFlickDeck(
                     val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                     var isUpwardDrag = false
                     var totalDeltaY = 0f
+                    val startTime = System.currentTimeMillis()
+                    var lastTime = startTime
+                    var lastY = down.position.y
+                    var recentVelocityY = 0f
 
                     while (true) {
                         val event = awaitPointerEvent(pass = PointerEventPass.Initial)
                         val change = event.changes.firstOrNull { it.id == down.id } ?: break
                         if (!change.pressed) break
 
+                        val now = System.currentTimeMillis()
+                        val dt = (now - lastTime).coerceAtLeast(1)
+                        val dy = change.position.y - lastY
+                        recentVelocityY = (dy / dt.toFloat()) * 1000f // px/s
+                        lastY = change.position.y
+                        lastTime = now
+
                         val deltaY = change.position.y - change.previousPosition.y
                         totalDeltaY += deltaY
 
                         // As soon as user swipes upward anywhere on screen (including over buttons!)
-                        if (totalDeltaY < -10f || isUpwardDrag) {
+                        if (totalDeltaY < -6f || isUpwardDrag) {
                             isUpwardDrag = true
                             change.consume()
                             if (!isFlicking) {
@@ -295,7 +306,16 @@ fun SpatialFlickDeck(
                     }
 
                     if (isUpwardDrag) {
-                        if (dragY.value < -70f) {
+                        val totalDuration = (System.currentTimeMillis() - startTime).coerceAtLeast(1)
+                        val avgVelocityY = (totalDeltaY / totalDuration.toFloat()) * 1000f
+
+                        // Light swipe & flick sensitivity:
+                        // 1. Distance threshold lowered from -70f to -35f (or totalDeltaY < -30f)
+                        // 2. Fast upward flick (velocity < -300 px/s) with minimal displacement (-12f)
+                        val isFlickGesture = dragY.value < -35f || totalDeltaY < -30f ||
+                            ((recentVelocityY < -300f || avgVelocityY < -280f) && totalDeltaY < -12f)
+
+                        if (isFlickGesture) {
                             executeFlick(isSingle = false)
                         } else {
                             scope.launch {
