@@ -12,8 +12,8 @@ android {
         applicationId = "com.eksend.flick"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "2.0.3"
+        versionCode = 230
+        versionName = "2.3.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
