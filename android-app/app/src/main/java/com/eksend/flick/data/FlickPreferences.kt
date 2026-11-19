@@ -85,7 +85,7 @@ class FlickPreferences(private val context: Context) {
         return list
     }
 
-    fun savePairedPc(pc: PairedPc) {
+    fun savePairedPc(pc: PairedPc, setAsActive: Boolean = true) {
         val current = getPairedPcs().toMutableList()
         val index = current.indexOfFirst { it.pcId == pc.pcId }
         if (index >= 0) {
@@ -109,8 +109,8 @@ class FlickPreferences(private val context: Context) {
         }
         prefs.edit().putString(KEY_PAIRED_PCS, arr.toString()).apply()
 
-        // If no active PC, set this as active
-        if (activePcId == null || activePcId == pc.pcId) {
+        // Set as active if newly paired or if no active PC
+        if (setAsActive || activePcId == null || activePcId == pc.pcId) {
             activePcId = pc.pcId
         }
     }

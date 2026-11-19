@@ -33,6 +33,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -143,6 +145,12 @@ fun HomeScreen(
     val discoveredPcsMap by udpListener.discoveredPcs.collectAsState()
     val uploadState by UploadProgressBus.state.collectAsState()
 
+    val allPaired = remember(preferences.getPairedPcs(), activePc) { preferences.getPairedPcs() }
+    val initialIdx = remember(allPaired.size) {
+        allPaired.indexOfFirst { it.pcId == preferences.activePcId }.coerceAtLeast(0)
+    }
+    val pagerState = rememberPagerState(initialPage = initialIdx) { allPaired.size.coerceAtLeast(1) }
+
     // File picker launcher
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetMultipleContents()
@@ -208,10 +216,51 @@ fun HomeScreen(
         }
     }
 
-    // Discovered PCs that are not yet paired
-    val pairedIds = remember(preferences.getPairedPcs()) { preferences.getPairedPcs().map { it.pcId }.toSet() }
+    LaunchedEffect(pagerState.currentPage) {
+        val targetPc = allPaired.getOrNull(pagerState.currentPage)
+        if (targetPc != null && targetPc.pcId != preferences.activePcId) {
+            preferences.activePcId = targetPc.pcId
+            activePc = targetPc
+            checkPcHealth(showSpinner = false)
+            HapticHelper.triggerQuickTick(context)
+        }
+    }
+
+    LaunchedEffect(activePc?.pcId) {
+        val activeIdx = allPaired.indexOfFirst { it.pcId == activePc?.pcId }
+        if (activeIdx >= 0 && activeIdx != pagerState.currentPage && activeIdx < pagerState.pageCount) {
+            pagerState.animateScrollToPage(activeIdx)
+        }
+    }
+
+    // Paired hardware nodes and silent IP synchronization from UDP beacons
+    val pairedPcs = remember(preferences.getPairedPcs(), activePc) { preferences.getPairedPcs() }
+    val pairedIds = remember(pairedPcs) { pairedPcs.map { it.pcId.lowercase().trim() }.toSet() }
+
+    LaunchedEffect(discoveredPcsMap) {
+        val currentPaired = preferences.getPairedPcs()
+        discoveredPcsMap.values.forEach { discovered ->
+            val matched = currentPaired.find { it.pcId.equals(discovered.pcId, ignoreCase = true) }
+            if (matched != null) {
+                // Silently update IP if changed (DHCP drift) without popping up any pair request
+                if (matched.lastKnownIp != discovered.ip && discovered.ip.isNotBlank()) {
+                    val updated = matched.copy(
+                        lastKnownIp = discovered.ip,
+                        port = discovered.port,
+                        lastSeenEpochMs = System.currentTimeMillis()
+                    )
+                    preferences.savePairedPc(updated, setAsActive = (matched.pcId == preferences.activePcId))
+                    if (matched.pcId == preferences.activePcId) {
+                        activePc = updated
+                    }
+                }
+            }
+        }
+    }
+
+    // Only PCs that are truly NOT paired will show an incoming pair request
     val incomingPairRequests = discoveredPcsMap.values.filter {
-        !pairedIds.contains(it.pcId) && !dismissedPcIds.contains(it.pcId)
+        !pairedIds.contains(it.pcId.lowercase().trim()) && !dismissedPcIds.contains(it.pcId)
     }
 
     Scaffold(
@@ -277,30 +326,13 @@ fun HomeScreen(
                 .padding(horizontal = 20.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
-            // 1. Incoming LAN Discovery Pair Request Cards
+            // 1. Incoming LAN Discovery Pair Request Cards (only for truly unpaired new PCs)
             items(incomingPairRequests) { pc ->
                 DiscoveredPairCard(
                     pc = pc,
                     onPair = {
-                        scope.launch(Dispatchers.IO) {
-                            val res = FlickHttpClient.requestLanPair(
-                                ip = pc.ip,
-                                port = pc.port,
-                                clientId = preferences.clientId,
-                                clientName = preferences.clientName,
-                                pairCode = pc.pcId.take(8).uppercase()
-                            )
-                            withContext(Dispatchers.Main) {
-                                res.onSuccess { newPairedPc ->
-                                    preferences.savePairedPc(newPairedPc)
-                                    activePc = newPairedPc
-                                    checkPcHealth()
-                                    HapticHelper.triggerPairSuccess(context, newPairedPc.pcName)
-                                }.onFailure { err ->
-                                    HapticHelper.triggerError(context, err.message ?: "Pairing failed")
-                                }
-                            }
-                        }
+                        // Secure zero-trust pairing via QR scanner
+                        onNavigateToScanner()
                     },
                     onDismiss = {
                         dismissedPcIds = dismissedPcIds + pc.pcId
@@ -308,210 +340,60 @@ fun HomeScreen(
                 )
             }
 
-            // 2. Hardware CRT / Active PC Telemetry Screen (Layered Contrast)
-            val pc = activePc
-            if (pc != null) {
+            // 2. Hardware CRT Telemetry Screen (Single Card or Horizontal Swipe Pager)
+            if (allPaired.isNotEmpty() || activePc != null) {
                 item {
-                    Surface(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(24.dp))
-                            .border(
-                                width = 1.dp,
-                                color = MaterialTheme.colorScheme.outline,
-                                shape = RoundedCornerShape(24.dp)
-                            ),
-                        shape = RoundedCornerShape(24.dp),
-                        color = MaterialTheme.colorScheme.surface,
-                        shadowElevation = 3.dp
-                    ) {
+                    if (allPaired.size <= 1) {
+                        val displayPc = allPaired.firstOrNull() ?: activePc!!
+                        HardwareTelemetryCard(
+                            pc = displayPc,
+                            isCurrentActive = true,
+                            onlineState = onlineState,
+                            uploadState = uploadState,
+                            isPinging = isPinging,
+                            onCheckHealth = { checkPcHealth() }
+                        )
+                    } else {
+                        // Multi-device Horizontal Pager (natural sideways swipe with subtle indicator dots)
                         Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(18.dp)
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            // Top Row: Status telemetry & TP-7 Motorized Spool
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    val statusTag = when {
-                                        uploadState.isUploading && uploadState.linkMode == "TURBO_NEGOTIATING" ->
-                                            "LINK: TURBO P2P // NEGOTIATING..."
-                                        uploadState.isUploading && uploadState.linkMode == "RESTORING" ->
-                                            "LINK: RESTORING HOME ROUTER..."
-                                        uploadState.isUploading && uploadState.linkMode == "TURBO_5G" ->
-                                            "TX: ${uploadState.progressPercent}% // TURBO 5GHZ DIRECT"
-                                        uploadState.isUploading && uploadState.linkMode == "HOTSPOT_DIRECT" ->
-                                            "TX: ${uploadState.progressPercent}% // HOTSPOT P2P DIRECT"
-                                        uploadState.isUploading ->
-                                            "TX: ${uploadState.progressPercent}% // [${uploadState.batchIndex + 1}/${uploadState.batchTotal}]"
-                                        isPinging -> "LINK: SYNCING..."
-                                        onlineState.isOnline && onlineState.isHotspotDirect -> "LINK: HOTSPOT P2P // DIRECT"
-                                        onlineState.isOnline -> "LINK: CONNECTED // TLS 1.3"
-                                        else -> "LINK: OFFLINE // TAP REEL"
-                                    }
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        Text(
-                                            text = statusTag,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontFamily = FontFamily.Monospace,
-                                            fontWeight = FontWeight.Bold,
-                                            color = if (uploadState.isUploading || onlineState.isOnline) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                        val linkBadge = when {
-                                            uploadState.isUploading && uploadState.linkMode == "TURBO_5G" -> "TURBO 5G"
-                                            uploadState.isUploading && uploadState.linkMode == "HOTSPOT_DIRECT" -> "HOTSPOT"
-                                            !uploadState.isUploading && onlineState.isOnline && onlineState.isHotspotDirect -> "HOTSPOT"
-                                            else -> null
-                                        }
-                                        if (linkBadge != null) {
-                                            Surface(
-                                                shape = RoundedCornerShape(4.dp),
-                                                color = MaterialTheme.colorScheme.primary
-                                            ) {
-                                                Text(
-                                                    text = linkBadge,
-                                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    fontFamily = FontFamily.Monospace,
-                                                    fontWeight = FontWeight.Black,
-                                                    fontSize = 9.sp,
-                                                    color = Color.White
-                                                )
-                                            }
-                                        }
-                                    }
-
-                                    Spacer(modifier = Modifier.height(3.dp))
-
-                                    // Machine Hostname (Clean Swiss Bold)
-                                    Text(
-                                        text = pc.pcName.uppercase(),
-                                        style = MaterialTheme.typography.titleLarge,
-                                        fontWeight = FontWeight.Black,
-                                        letterSpacing = 0.5.sp,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-
-                                    Text(
-                                        text = "IP: ${pc.lastKnownIp} : ${pc.port}",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        fontFamily = FontFamily.Monospace,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-
-                                // TP-7 Motorized Tape Spool (Tap to Ping, spins during sync/stream/upload)
-                                ScallopedDeviceBadge(
-                                    isOnline = onlineState.isOnline,
-                                    isSpinning = isPinging || uploadState.isUploading,
-                                    size = 56.dp,
-                                    onClick = { checkPcHealth() }
+                            HorizontalPager(
+                                state = pagerState,
+                                pageSpacing = 14.dp,
+                                modifier = Modifier.fillMaxWidth()
+                            ) { page ->
+                                val curPc = allPaired[page]
+                                val isActive = curPc.pcId == preferences.activePcId
+                                HardwareTelemetryCard(
+                                    pc = curPc,
+                                    isCurrentActive = isActive,
+                                    onlineState = onlineState,
+                                    uploadState = uploadState,
+                                    isPinging = isPinging,
+                                    onCheckHealth = { checkPcHealth() }
                                 )
                             }
 
-                            Spacer(modifier = Modifier.height(14.dp))
-
-                            // Bottom Telemetry Bar: Speed Meter & RTT Latency
+                            // Minimal tactile indicator dots
                             Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
-                                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
+                                modifier = Modifier.padding(top = 10.dp),
+                                horizontalArrangement = Arrangement.Center,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                // Multi-segment LED Throughput Speed Meter (Replaced VU with SPEED)
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(3.dp)
-                                ) {
-                                    val activeSpeedMb = uploadState.speedMbPerSec
-                                    val speedLabel = if (uploadState.isUploading) {
-                                        String.format(java.util.Locale.US, "SPEED: %.1f MB/S", activeSpeedMb)
-                                    } else {
-                                        "SPEED: "
-                                    }
-                                    Text(
-                                        text = speedLabel,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontFamily = FontFamily.Monospace,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (uploadState.isUploading) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                repeat(allPaired.size) { idx ->
+                                    val isSelected = pagerState.currentPage == idx
+                                    Box(
+                                        modifier = Modifier
+                                            .padding(horizontal = 4.dp)
+                                            .size(if (isSelected) 8.dp else 5.dp)
+                                            .clip(CircleShape)
+                                            .background(
+                                                if (isSelected) MaterialTheme.colorScheme.primary
+                                                else MaterialTheme.colorScheme.outlineVariant
+                                            )
                                     )
-                                    val barCount = when {
-                                        uploadState.isUploading -> when {
-                                            activeSpeedMb > 45.0 -> 6
-                                            activeSpeedMb > 25.0 -> 5
-                                            activeSpeedMb > 12.0 -> 4
-                                            activeSpeedMb > 5.0 -> 3
-                                            activeSpeedMb > 0.0 -> 2
-                                            else -> 1
-                                        }
-                                        onlineState.isOnline -> 5
-                                        else -> 1
-                                    }
-                                    for (i in 1..6) {
-                                        val barColor = when {
-                                            i > barCount -> MaterialTheme.colorScheme.outlineVariant
-                                            i <= 3 -> MaterialTheme.colorScheme.primary
-                                            i <= 5 -> MaterialTheme.colorScheme.tertiary
-                                            else -> MaterialTheme.colorScheme.primary
-                                        }
-                                        Box(
-                                            modifier = Modifier
-                                                .width(4.dp)
-                                                .height(12.dp)
-                                                .clip(RoundedCornerShape(1.dp))
-                                                .background(barColor)
-                                        )
-                                    }
-                                }
-
-                                // RTT Latency / Upload ETA Tag
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Text(
-                                        text = if (uploadState.isUploading) "ETA:" else "RTT:",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontFamily = FontFamily.Monospace,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    Surface(
-                                        shape = RoundedCornerShape(6.dp),
-                                        color = if (uploadState.isUploading || onlineState.isOnline) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-                                        border = androidx.compose.foundation.BorderStroke(
-                                            1.dp,
-                                            if (uploadState.isUploading || onlineState.isOnline) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
-                                        )
-                                    ) {
-                                        val statusPillText = when {
-                                            uploadState.isUploading -> if (uploadState.etaSeconds > 0) "${uploadState.etaSeconds}S" else "${uploadState.progressPercent}%"
-                                            isPinging -> "SYNC..."
-                                            onlineState.isOnline -> "${onlineState.pingMs} MS"
-                                            else -> "OFFLINE"
-                                        }
-                                        Text(
-                                            text = statusPillText,
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontFamily = FontFamily.Monospace,
-                                            fontWeight = FontWeight.Bold,
-                                            color = if (uploadState.isUploading || onlineState.isOnline) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
                                 }
                             }
                         }
@@ -1124,6 +1006,230 @@ fun TransferThumbnail(
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(20.dp)
                 )
+            }
+        }
+    }
+}
+
+/**
+ * Tactical Teenage Engineering Telemetry Screen (CRT Display Card).
+ * Shows PC link status, live speed meter, RTT latency, and motorized tape spool.
+ * Used individually or hosted inside the Horizontal Swipe Pager when multiple PCs are linked.
+ */
+@Composable
+private fun HardwareTelemetryCard(
+    pc: com.eksend.flick.data.PairedPc,
+    isCurrentActive: Boolean,
+    onlineState: com.eksend.flick.data.PcOnlineState,
+    uploadState: com.eksend.flick.service.ActiveUploadState,
+    isPinging: Boolean,
+    onCheckHealth: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(24.dp))
+            .border(
+                width = 1.dp,
+                color = if (isCurrentActive) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                shape = RoundedCornerShape(24.dp)
+            ),
+        shape = RoundedCornerShape(24.dp),
+        color = MaterialTheme.colorScheme.surface,
+        shadowElevation = if (isCurrentActive) 3.dp else 1.dp
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(18.dp)
+        ) {
+            // Top Row: Status telemetry & TP-7 Motorized Spool
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    val statusTag = when {
+                        !isCurrentActive -> "LINK: STANDBY // SWIPE TO CONNECT"
+                        uploadState.isUploading && uploadState.linkMode == "TURBO_NEGOTIATING" ->
+                            "LINK: TURBO P2P // NEGOTIATING..."
+                        uploadState.isUploading && uploadState.linkMode == "RESTORING" ->
+                            "LINK: RESTORING HOME ROUTER..."
+                        uploadState.isUploading && uploadState.linkMode == "TURBO_5G" ->
+                            "TX: ${uploadState.progressPercent}% // TURBO 5GHZ DIRECT"
+                        uploadState.isUploading && uploadState.linkMode == "HOTSPOT_DIRECT" ->
+                            "TX: ${uploadState.progressPercent}% // HOTSPOT P2P DIRECT"
+                        uploadState.isUploading ->
+                            "TX: ${uploadState.progressPercent}% // [${uploadState.batchIndex + 1}/${uploadState.batchTotal}]"
+                        isPinging -> "LINK: SYNCING..."
+                        onlineState.isOnline && onlineState.isHotspotDirect -> "LINK: HOTSPOT P2P // DIRECT"
+                        onlineState.isOnline -> "LINK: CONNECTED // TLS 1.3"
+                        else -> "LINK: OFFLINE // TAP REEL"
+                    }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = statusTag,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isCurrentActive && (uploadState.isUploading || onlineState.isOnline)) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        val linkBadge = when {
+                            !isCurrentActive -> null
+                            uploadState.isUploading && uploadState.linkMode == "TURBO_5G" -> "TURBO 5G"
+                            uploadState.isUploading && uploadState.linkMode == "HOTSPOT_DIRECT" -> "HOTSPOT"
+                            !uploadState.isUploading && onlineState.isOnline && onlineState.isHotspotDirect -> "HOTSPOT"
+                            else -> null
+                        }
+                        if (linkBadge != null) {
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = MaterialTheme.colorScheme.primary
+                            ) {
+                                Text(
+                                    text = linkBadge,
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 9.sp,
+                                    color = Color.White
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(3.dp))
+
+                    // Machine Hostname (Clean Swiss Bold)
+                    Text(
+                        text = pc.pcName.uppercase(),
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Black,
+                        letterSpacing = 0.5.sp,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+
+                    Text(
+                        text = "IP: ${pc.lastKnownIp} : ${pc.port}",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = FontFamily.Monospace,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                // TP-7 Motorized Tape Spool (Tap to Ping, spins during sync/stream/upload)
+                ScallopedDeviceBadge(
+                    isOnline = isCurrentActive && onlineState.isOnline,
+                    isSpinning = isCurrentActive && (isPinging || uploadState.isUploading),
+                    size = 56.dp,
+                    onClick = { if (isCurrentActive) onCheckHealth() }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Bottom Telemetry Bar: Speed Meter & RTT Latency
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Multi-segment LED Throughput Speed Meter
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    val activeSpeedMb = uploadState.speedMbPerSec
+                    val speedLabel = if (isCurrentActive && uploadState.isUploading) {
+                        String.format(java.util.Locale.US, "SPEED: %.1f MB/S", activeSpeedMb)
+                    } else {
+                        "SPEED: "
+                    }
+                    Text(
+                        text = speedLabel,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isCurrentActive && uploadState.isUploading) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    val barCount = when {
+                        !isCurrentActive -> 0
+                        uploadState.isUploading -> when {
+                            activeSpeedMb > 45.0 -> 6
+                            activeSpeedMb > 25.0 -> 5
+                            activeSpeedMb > 12.0 -> 4
+                            activeSpeedMb > 5.0 -> 3
+                            activeSpeedMb > 0.0 -> 2
+                            else -> 1
+                        }
+                        onlineState.isOnline -> 5
+                        else -> 1
+                    }
+                    for (i in 1..6) {
+                        val barColor = when {
+                            i > barCount -> MaterialTheme.colorScheme.outlineVariant
+                            i <= 3 -> MaterialTheme.colorScheme.primary
+                            i <= 5 -> MaterialTheme.colorScheme.tertiary
+                            else -> MaterialTheme.colorScheme.primary
+                        }
+                        Box(
+                            modifier = Modifier
+                                .width(4.dp)
+                                .height(12.dp)
+                                .clip(RoundedCornerShape(1.dp))
+                                .background(barColor)
+                        )
+                    }
+                }
+
+                // RTT Latency / Upload ETA Tag
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = if (isCurrentActive && uploadState.isUploading) "ETA:" else "RTT:",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontFamily = FontFamily.Monospace,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = if (isCurrentActive && (uploadState.isUploading || onlineState.isOnline)) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            if (isCurrentActive && (uploadState.isUploading || onlineState.isOnline)) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                        )
+                    ) {
+                        val statusPillText = when {
+                            !isCurrentActive -> "STANDBY"
+                            uploadState.isUploading -> if (uploadState.etaSeconds > 0) "${uploadState.etaSeconds}S" else "${uploadState.progressPercent}%"
+                            isPinging -> "SYNC..."
+                            onlineState.isOnline -> "${onlineState.pingMs} MS"
+                            else -> "OFFLINE"
+                        }
+                        Text(
+                            text = statusPillText,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isCurrentActive && (uploadState.isUploading || onlineState.isOnline)) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
             }
         }
     }

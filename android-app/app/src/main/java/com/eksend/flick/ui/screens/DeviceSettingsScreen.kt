@@ -104,7 +104,9 @@ fun DeviceSettingsScreen(
             preferences.isTurboLinkEnabled = false
         }
     }
-    val activePc = preferences.getActivePc()
+    var allPaired by remember { mutableStateOf(preferences.getPairedPcs()) }
+    var currentActiveId by remember { mutableStateOf(preferences.activePcId) }
+    val activePc = allPaired.firstOrNull { it.pcId == currentActiveId } ?: allPaired.firstOrNull()
 
     // Smooth system back gesture returns to Home
     BackHandler {
@@ -112,6 +114,7 @@ fun DeviceSettingsScreen(
     }
 
     var showEditDialog by remember { mutableStateOf(false) }
+    var editTargetPc by remember { mutableStateOf<com.eksend.flick.data.PairedPc?>(null) }
     var editIp by remember { mutableStateOf(activePc?.lastKnownIp ?: "") }
     var editPort by remember { mutableStateOf(activePc?.port?.toString() ?: "45455") }
     var editToken by remember { mutableStateOf(activePc?.authToken ?: "") }
@@ -455,94 +458,169 @@ fun DeviceSettingsScreen(
                 }
             }
 
-            // Section 3: Active RF Node Calibration
-            if (activePc != null) {
-                item {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text(
-                            text = "PEER RF NODE CALIBRATION",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 1.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+            // Section 3: Paired Hardware Nodes & Active Link Calibration
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = if (allPaired.isNotEmpty()) "PAIRED HARDWARE NODES (${allPaired.size})" else "HARDWARE NODES",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
 
+                    if (allPaired.isEmpty()) {
                         Surface(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(20.dp)),
+                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(20.dp)),
                             shape = RoundedCornerShape(20.dp),
                             color = MaterialTheme.colorScheme.surface
                         ) {
                             Column(
-                                modifier = Modifier.padding(18.dp),
-                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(24.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column {
-                                        Text(
-                                            text = activePc.pcName.uppercase(),
-                                            style = MaterialTheme.typography.titleLarge,
-                                            fontWeight = FontWeight.Black,
-                                            letterSpacing = 0.5.sp,
-                                            color = MaterialTheme.colorScheme.onSurface
-                                        )
-                                        Text(
-                                            text = "${activePc.lastKnownIp} : ${activePc.port}",
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            fontFamily = FontFamily.Monospace,
-                                            color = MaterialTheme.colorScheme.primary,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-                                    IconButton(onClick = { showEditDialog = true }) {
-                                        Icon(
-                                            imageVector = Icons.Rounded.Edit,
-                                            contentDescription = "Edit IP",
-                                            tint = MaterialTheme.colorScheme.primary
-                                        )
-                                    }
-                                }
-
                                 Text(
-                                    text = "AUTH TOKEN: ${activePc.authToken.take(8).uppercase()}...${activePc.authToken.takeLast(8).uppercase()}",
+                                    text = "NO HARDWARE NODES PAIRED",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = "Scan PC QR code on Home screen to link this device",
                                     style = MaterialTheme.typography.bodySmall,
-                                    fontFamily = FontFamily.Monospace,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
-
-                                Spacer(modifier = Modifier.height(4.dp))
-
-                                OutlinedButton(
-                                    onClick = {
-                                        preferences.removePairedPc(activePc.pcId)
-                                        onBack()
-                                    },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(12.dp),
-                                    colors = ButtonDefaults.outlinedButtonColors(
-                                        contentColor = MaterialTheme.colorScheme.error
-                                    ),
-                                    border = androidx.compose.foundation.BorderStroke(
-                                        1.dp,
-                                        MaterialTheme.colorScheme.error.copy(alpha = 0.5f)
-                                    )
+                            }
+                        }
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            allPaired.forEach { node ->
+                                val isNodeActive = node.pcId == currentActiveId
+                                Surface(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(20.dp))
+                                        .border(
+                                            1.dp,
+                                            if (isNodeActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                                            RoundedCornerShape(20.dp)
+                                        )
+                                        .clickable {
+                                            preferences.activePcId = node.pcId
+                                            currentActiveId = node.pcId
+                                        },
+                                    shape = RoundedCornerShape(20.dp),
+                                    color = MaterialTheme.colorScheme.surface
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Delete,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        "DISCONNECT & UNPAIR LINK",
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 12.sp
-                                    )
+                                    Column(
+                                        modifier = Modifier.padding(18.dp),
+                                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                ) {
+                                                    Text(
+                                                        text = node.pcName.uppercase(),
+                                                        style = MaterialTheme.typography.titleMedium,
+                                                        fontWeight = FontWeight.Black,
+                                                        letterSpacing = 0.5.sp,
+                                                        color = MaterialTheme.colorScheme.onSurface
+                                                    )
+                                                    if (isNodeActive) {
+                                                        Surface(
+                                                            shape = RoundedCornerShape(4.dp),
+                                                            color = MaterialTheme.colorScheme.primary
+                                                        ) {
+                                                            Text(
+                                                                text = "ACTIVE",
+                                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                                style = MaterialTheme.typography.labelSmall,
+                                                                fontFamily = FontFamily.Monospace,
+                                                                fontWeight = FontWeight.Black,
+                                                                fontSize = 9.sp,
+                                                                color = Color.White
+                                                            )
+                                                        }
+                                                    } else {
+                                                        Surface(
+                                                            shape = RoundedCornerShape(4.dp),
+                                                            color = MaterialTheme.colorScheme.surfaceVariant
+                                                        ) {
+                                                            Text(
+                                                                text = "TAP TO CONNECT",
+                                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                                style = MaterialTheme.typography.labelSmall,
+                                                                fontFamily = FontFamily.Monospace,
+                                                                fontWeight = FontWeight.Bold,
+                                                                fontSize = 8.sp,
+                                                                color = MaterialTheme.colorScheme.primary
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                                Spacer(modifier = Modifier.height(2.dp))
+                                                Text(
+                                                    text = "${node.lastKnownIp} : ${node.port}",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    fontFamily = FontFamily.Monospace,
+                                                    color = if (isNodeActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                IconButton(
+                                                    onClick = {
+                                                        editTargetPc = node
+                                                        editIp = node.lastKnownIp
+                                                        editPort = node.port.toString()
+                                                        editToken = node.authToken
+                                                        showEditDialog = true
+                                                    }
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Rounded.Edit,
+                                                        contentDescription = "Edit IP",
+                                                        tint = MaterialTheme.colorScheme.primary
+                                                    )
+                                                }
+                                                IconButton(
+                                                    onClick = {
+                                                        preferences.removePairedPc(node.pcId)
+                                                        allPaired = preferences.getPairedPcs()
+                                                        currentActiveId = preferences.activePcId
+                                                    }
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Rounded.Delete,
+                                                        contentDescription = "Unpair",
+                                                        tint = MaterialTheme.colorScheme.error
+                                                    )
+                                                }
+                                            }
+                                        }
+
+                                        if (node.authToken.isNotEmpty()) {
+                                            Text(
+                                                text = "AUTH TOKEN: ${node.authToken.take(8).uppercase()}...${node.authToken.takeLast(8).uppercase()}",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                fontFamily = FontFamily.Monospace,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -557,13 +635,14 @@ fun DeviceSettingsScreen(
     }
 
     // Manual IP / Port / Token Edit Dialog
-    if (showEditDialog && activePc != null) {
+    if (showEditDialog && (editTargetPc != null || activePc != null)) {
+        val target = editTargetPc ?: activePc!!
         AlertDialog(
             onDismissRequest = { showEditDialog = false },
             containerColor = MaterialTheme.colorScheme.surface,
             title = {
                 Text(
-                    "CALIBRATE LINK",
+                    "CALIBRATE LINK: ${target.pcName.uppercase()}",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
@@ -615,12 +694,13 @@ fun DeviceSettingsScreen(
                     ),
                     onClick = {
                         val parsedPort = editPort.toIntOrNull() ?: 45455
-                        val updated = activePc.copy(
+                        val updated = target.copy(
                             lastKnownIp = editIp.trim(),
                             port = parsedPort,
                             authToken = editToken.trim()
                         )
-                        preferences.savePairedPc(updated)
+                        preferences.savePairedPc(updated, setAsActive = (target.pcId == currentActiveId))
+                        allPaired = preferences.getPairedPcs()
                         showEditDialog = false
                     }
                 ) {

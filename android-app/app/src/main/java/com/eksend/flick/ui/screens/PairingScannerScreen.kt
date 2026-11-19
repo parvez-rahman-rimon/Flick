@@ -250,7 +250,8 @@ fun PairingScannerScreen(
                                                 withContext(Dispatchers.Main) {
                                                     isPairing = false
                                                     pairRes.onSuccess { pairedPc ->
-                                                        preferences.savePairedPc(pairedPc)
+                                                        preferences.savePairedPc(pairedPc, setAsActive = true)
+                                                        preferences.activePcId = pairedPc.pcId
                                                         HapticHelper.triggerPairSuccess(context, pairedPc.pcName)
                                                         onPairSuccess()
                                                     }.onFailure { err ->
