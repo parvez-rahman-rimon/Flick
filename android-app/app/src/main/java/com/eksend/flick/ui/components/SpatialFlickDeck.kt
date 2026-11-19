@@ -52,6 +52,7 @@ import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.PhotoLibrary
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -110,6 +111,8 @@ data class FlickCardItem(
     val fileName: String,
     val fileSizeStr: String,
     val isImage: Boolean,
+    val isVideo: Boolean = false,
+    val isPdf: Boolean = false,
     val bitmap: Bitmap? = null
 )
 
@@ -137,8 +140,7 @@ fun SpatialFlickDeck(
             withContext(Dispatchers.IO) {
                 val loaded = uris.mapIndexed { idx, uri ->
                     val mimeType = context.contentResolver.getType(uri) ?: "application/octet-stream"
-                    val isImg = mimeType.startsWith("image/")
-                    var name = "Photo ${idx + 1}"
+                    var name = "File ${idx + 1}"
                     var sizeStr = ""
                     try {
                         context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
@@ -154,12 +156,18 @@ fun SpatialFlickDeck(
                         }
                     } catch (_: Exception) {}
 
-                    val bmp = if (isImg) loadThumbnail(context, uri, maxDimension = 800) else null
+                    val isImg = mimeType.startsWith("image/")
+                    val isVid = mimeType.startsWith("video/")
+                    val isPdf = mimeType == "application/pdf" || name.endsWith(".pdf", ignoreCase = true)
+
+                    val bmp = loadMediaThumbnail(context, uri, mimeType, name, maxDimension = 800)
                     FlickCardItem(
                         uri = uri,
                         fileName = name,
                         fileSizeStr = sizeStr,
                         isImage = isImg,
+                        isVideo = isVid,
+                        isPdf = isPdf,
                         bitmap = bmp
                     )
                 }
@@ -426,6 +434,7 @@ fun SpatialFlickDeck(
                     FannedDeckCard(
                         item = item,
                         index = 0,
+                        totalCount = 1,
                         isFocused = true,
                         diff = 0,
                         modifier = Modifier
@@ -514,6 +523,7 @@ fun SpatialFlickDeck(
                                 FannedDeckCard(
                                     item = item,
                                     index = index,
+                                    totalCount = deckItems.size,
                                     isFocused = (diff == 0),
                                     diff = diff,
                                     modifier = Modifier
@@ -767,6 +777,7 @@ fun SpatialFlickDeck(
 private fun FannedDeckCard(
     item: FlickCardItem,
     index: Int,
+    totalCount: Int = 1,
     isFocused: Boolean,
     diff: Int,
     modifier: Modifier = Modifier
@@ -791,9 +802,27 @@ private fun FannedDeckCard(
             Image(
                 bitmap = item.bitmap.asImageBitmap(),
                 contentDescription = item.fileName,
-                contentScale = ContentScale.Crop,
+                contentScale = if (item.isPdf) ContentScale.Fit else ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
             )
+            // Overlay Play icon for video previews
+            if (item.isVideo) {
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.55f))
+                        .border(1.dp, Color.White.copy(alpha = 0.40f), CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.PlayArrow,
+                        contentDescription = "Video",
+                        tint = Color.White,
+                        modifier = Modifier.size(30.dp)
+                    )
+                }
+            }
         } else if (item.isImage) {
             Box(
                 modifier = Modifier.fillMaxSize(),
@@ -815,9 +844,9 @@ private fun FannedDeckCard(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Icon(
-                    imageVector = Icons.Rounded.Bolt,
+                    imageVector = if (item.isPdf) Icons.Rounded.Description else Icons.Rounded.Bolt,
                     contentDescription = null,
-                    tint = Color(0xFFFF5722),
+                    tint = if (item.isPdf) Color(0xFFE53935) else Color(0xFFFF5722),
                     modifier = Modifier.size(44.dp)
                 )
                 Spacer(modifier = Modifier.height(10.dp))
@@ -842,52 +871,133 @@ private fun FannedDeckCard(
             )
         }
 
-        // Top-Left Pill Badge ("01", "02", "03" - matching user reference)
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(10.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(if (isFocused) Color(0xFFFF4400) else Color(0xCC161922))
-                .border(
-                    width = 1.dp,
-                    color = if (isFocused) Color(0xAAFFFFFF) else Color(0x33FFFFFF),
-                    shape = RoundedCornerShape(10.dp)
+        // Top-Left Pill Badge ("01", "02", "03" - ONLY when multiple files exist)
+        if (totalCount > 1) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(10.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(if (isFocused) Color(0xFFFF4400) else Color(0xCC161922))
+                    .border(
+                        width = 1.dp,
+                        color = if (isFocused) Color(0xAAFFFFFF) else Color(0x33FFFFFF),
+                        shape = RoundedCornerShape(10.dp)
+                    )
+                    .padding(horizontal = 8.dp, vertical = 3.dp)
+            ) {
+                Text(
+                    text = String.format(java.util.Locale.US, "%02d", index + 1),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 10.sp,
+                    color = Color.White
                 )
-                .padding(horizontal = 8.dp, vertical = 3.dp)
-        ) {
-            Text(
-                text = String.format(java.util.Locale.US, "%02d", index + 1),
-                style = MaterialTheme.typography.labelSmall,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Bold,
-                fontSize = 10.sp,
-                color = Color.White
-            )
+            }
+        }
+
+        // PDF Badge on Top-Right for clarity
+        if (item.isPdf) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(10.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0xFFE53935))
+                    .border(1.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
+                    .padding(horizontal = 7.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    text = "PDF",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 9.sp,
+                    color = Color.White
+                )
+            }
         }
     }
 }
 
-private fun loadThumbnail(context: Context, uri: Uri, maxDimension: Int): Bitmap? {
+private fun loadMediaThumbnail(
+    context: Context,
+    uri: Uri,
+    mimeType: String,
+    fileName: String,
+    maxDimension: Int
+): Bitmap? {
     return try {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            val source = ImageDecoder.createSource(context.contentResolver, uri)
-            ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
-                val sample = maxOf(info.size.width / maxDimension, info.size.height / maxDimension, 1)
-                decoder.setTargetSampleSize(sample)
-                decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+        when {
+            mimeType.startsWith("image/") -> {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    val source = ImageDecoder.createSource(context.contentResolver, uri)
+                    ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
+                        val sample = maxOf(info.size.width / maxDimension, info.size.height / maxDimension, 1)
+                        decoder.setTargetSampleSize(sample)
+                        decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                    }
+                } else {
+                    var sample = 1
+                    context.contentResolver.openInputStream(uri)?.use { stream ->
+                        val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                        BitmapFactory.decodeStream(stream, null, opts)
+                        sample = maxOf(opts.outWidth / maxDimension, opts.outHeight / maxDimension, 1)
+                    }
+                    context.contentResolver.openInputStream(uri)?.use { stream ->
+                        val opts = BitmapFactory.Options().apply { inSampleSize = sample }
+                        BitmapFactory.decodeStream(stream, null, opts)
+                    }
+                }
             }
-        } else {
-            var sample = 1
-            context.contentResolver.openInputStream(uri)?.use { stream ->
-                val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                BitmapFactory.decodeStream(stream, null, opts)
-                sample = maxOf(opts.outWidth / maxDimension, opts.outHeight / maxDimension, 1)
+            mimeType.startsWith("video/") -> {
+                val sysThumb = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    try {
+                        context.contentResolver.loadThumbnail(uri, android.util.Size(maxDimension, maxDimension), null)
+                    } catch (_: Exception) {
+                        null
+                    }
+                } else {
+                    null
+                }
+                sysThumb ?: run {
+                    val retriever = android.media.MediaMetadataRetriever()
+                    try {
+                        retriever.setDataSource(context, uri)
+                        retriever.getFrameAtTime(0, android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                    } catch (_: Exception) {
+                        null
+                    } finally {
+                        try { retriever.release() } catch (_: Exception) {}
+                    }
+                }
             }
-            context.contentResolver.openInputStream(uri)?.use { stream ->
-                val opts = BitmapFactory.Options().apply { inSampleSize = sample }
-                BitmapFactory.decodeStream(stream, null, opts)
+            mimeType == "application/pdf" || fileName.endsWith(".pdf", ignoreCase = true) -> {
+                context.contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
+                    try {
+                        val renderer = android.graphics.pdf.PdfRenderer(pfd)
+                        if (renderer.pageCount > 0) {
+                            val page = renderer.openPage(0)
+                            val scale = maxDimension.toFloat() / maxOf(page.width, page.height).coerceAtLeast(1)
+                            val targetW = (page.width * scale).toInt().coerceAtLeast(1)
+                            val targetH = (page.height * scale).toInt().coerceAtLeast(1)
+                            val bmp = Bitmap.createBitmap(targetW, targetH, Bitmap.Config.ARGB_8888)
+                            bmp.eraseColor(android.graphics.Color.WHITE)
+                            page.render(bmp, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                            page.close()
+                            renderer.close()
+                            bmp
+                        } else {
+                            renderer.close()
+                            null
+                        }
+                    } catch (_: Exception) {
+                        null
+                    }
+                }
             }
+            else -> null
         }
     } catch (_: Exception) {
         null
