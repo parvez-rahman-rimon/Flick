@@ -7,6 +7,7 @@ mod crypto;
 mod gui;
 mod http_server;
 pub mod landing;
+pub mod progress_hud;
 mod tray;
 
 use std::ffi::OsStr;

@@ -90,6 +90,7 @@ import com.eksend.flick.data.TransferRecord
 import com.eksend.flick.network.FlickHttpClient
 import com.eksend.flick.network.UdpDiscoveryListener
 import com.eksend.flick.service.HapticHelper
+import com.eksend.flick.service.UploadProgressBus
 import com.eksend.flick.service.UploadService
 import com.eksend.flick.ui.components.BentoActionTile
 import com.eksend.flick.ui.components.DiscoveredPairCard
@@ -122,6 +123,7 @@ fun HomeScreen(
     var pendingFlickUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
 
     val discoveredPcsMap by udpListener.discoveredPcs.collectAsState()
+    val uploadState by UploadProgressBus.state.collectAsState()
 
     // File picker launcher
     val filePickerLauncher = rememberLauncherForActivityResult(
@@ -288,6 +290,7 @@ fun HomeScreen(
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
                                     val statusTag = when {
+                                        uploadState.isUploading -> "TX: ${uploadState.progressPercent}% // [${uploadState.batchIndex + 1}/${uploadState.batchTotal}]"
                                         isPinging -> "LINK: SYNCING..."
                                         onlineState.isOnline -> "LINK: CONNECTED // TLS 1.3"
                                         else -> "LINK: OFFLINE // TAP REEL"
@@ -297,7 +300,7 @@ fun HomeScreen(
                                         style = MaterialTheme.typography.labelSmall,
                                         fontFamily = FontFamily.Monospace,
                                         fontWeight = FontWeight.Bold,
-                                        color = if (onlineState.isOnline) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                        color = if (uploadState.isUploading || onlineState.isOnline) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                                     )
 
                                     Spacer(modifier = Modifier.height(3.dp))
@@ -321,10 +324,10 @@ fun HomeScreen(
                                     )
                                 }
 
-                                // TP-7 Motorized Tape Spool (Tap to Ping, spins during sync/stream)
+                                // TP-7 Motorized Tape Spool (Tap to Ping, spins during sync/stream/upload)
                                 ScallopedDeviceBadge(
                                     isOnline = onlineState.isOnline,
-                                    isSpinning = isPinging,
+                                    isSpinning = isPinging || uploadState.isUploading,
                                     size = 56.dp,
                                     onClick = { checkPcHealth() }
                                 )
@@ -348,14 +351,31 @@ fun HomeScreen(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(3.dp)
                                 ) {
+                                    val activeSpeedMb = uploadState.speedMbPerSec
+                                    val speedLabel = if (uploadState.isUploading) {
+                                        String.format(java.util.Locale.US, "SPEED: %.1f MB/S", activeSpeedMb)
+                                    } else {
+                                        "SPEED: "
+                                    }
                                     Text(
-                                        text = "SPEED: ",
+                                        text = speedLabel,
                                         style = MaterialTheme.typography.labelSmall,
                                         fontFamily = FontFamily.Monospace,
                                         fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        color = if (uploadState.isUploading) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                                     )
-                                    val barCount = if (onlineState.isOnline) 5 else 1
+                                    val barCount = when {
+                                        uploadState.isUploading -> when {
+                                            activeSpeedMb > 45.0 -> 6
+                                            activeSpeedMb > 25.0 -> 5
+                                            activeSpeedMb > 12.0 -> 4
+                                            activeSpeedMb > 5.0 -> 3
+                                            activeSpeedMb > 0.0 -> 2
+                                            else -> 1
+                                        }
+                                        onlineState.isOnline -> 5
+                                        else -> 1
+                                    }
                                     for (i in 1..6) {
                                         val barColor = when {
                                             i > barCount -> MaterialTheme.colorScheme.outlineVariant
@@ -373,37 +393,38 @@ fun HomeScreen(
                                     }
                                 }
 
-                                // RTT Latency Tag
+                                // RTT Latency / Upload ETA Tag
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
                                     Text(
-                                        text = "RTT:",
+                                        text = if (uploadState.isUploading) "ETA:" else "RTT:",
                                         style = MaterialTheme.typography.labelSmall,
                                         fontFamily = FontFamily.Monospace,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                     Surface(
                                         shape = RoundedCornerShape(6.dp),
-                                        color = if (onlineState.isOnline) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                                        color = if (uploadState.isUploading || onlineState.isOnline) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
                                         border = androidx.compose.foundation.BorderStroke(
                                             1.dp,
-                                            if (onlineState.isOnline) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                                            if (uploadState.isUploading || onlineState.isOnline) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
                                         )
                                     ) {
-                                        val pingText = when {
+                                        val statusPillText = when {
+                                            uploadState.isUploading -> if (uploadState.etaSeconds > 0) "${uploadState.etaSeconds}S" else "${uploadState.progressPercent}%"
                                             isPinging -> "SYNC..."
                                             onlineState.isOnline -> "${onlineState.pingMs} MS"
                                             else -> "OFFLINE"
                                         }
                                         Text(
-                                            text = pingText,
+                                            text = statusPillText,
                                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                             style = MaterialTheme.typography.labelSmall,
                                             fontFamily = FontFamily.Monospace,
                                             fontWeight = FontWeight.Bold,
-                                            color = if (onlineState.isOnline) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                            color = if (uploadState.isUploading || onlineState.isOnline) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
                                 }

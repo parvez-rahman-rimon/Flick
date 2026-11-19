@@ -48,7 +48,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 
 type HmacSha256 = Hmac<Sha256>;
 
-const CHUNK_SIZE: usize = 65536; // 64 KB read buffer
+const CHUNK_SIZE: usize = 262144; // 256 KB high-throughput read buffer (upgraded from 64 KB)
 const MAX_ALLOWED_FILE_BYTES: u64 = 4 * 1024 * 1024 * 1024; // 4 GB max
 const SAFETY_DISK_BUFFER: u64 = 500 * 1024 * 1024; // 500 MB minimum remaining free space
 const MAX_PAIR_BODY_BYTES: usize = 64 * 1024; // 64 KB max
@@ -298,6 +298,7 @@ pub fn start_http_receiver(
             while r_clone.load(Ordering::SeqCst) {
                 match listener.accept() {
                     Ok((stream, peer_addr)) => {
+                        let _ = stream.set_nodelay(true);
                         let cfg_tls = Arc::clone(&server_config);
                         let c_creds = Arc::clone(&creds);
 
@@ -821,25 +822,52 @@ fn handle_upload<S: Read + Write>(
         let to_read = (remaining as usize).min(CHUNK_SIZE);
         match stream.read(&mut buf[..to_read]) {
             Ok(0) => {
+                crate::progress_hud::dismiss();
                 let _ = fs::remove_file(&temp_part_path);
                 send_response(stream, 400, "Bad Request", "text/plain", b"Unexpected EOF");
                 return;
             }
             Ok(n) => {
                 if part_file.write_all(&buf[..n]).is_err() {
+                    crate::progress_hud::dismiss();
                     let _ = fs::remove_file(&temp_part_path);
                     send_response(stream, 500, "Internal Server Error", "text/plain", b"Disk write error");
                     return;
                 }
                 remaining -= n as u64;
+
+                let bytes_read = content_len - remaining;
+                let elapsed_secs = start_time.elapsed().as_secs_f32();
+                let percent = if content_len > 0 {
+                    ((bytes_read as f64 / content_len as f64) * 100.0) as u32
+                } else {
+                    0
+                };
+
+                // User Rule:
+                // - Only show after 4 seconds has elapsed
+                // - Automatically dismiss at >= 90% so screen is clean before spatial drop
+                if elapsed_secs >= 4.0 && percent < 90 {
+                    let speed_mb = if elapsed_secs > 0.0 {
+                        (bytes_read as f64 / elapsed_secs as f64) / (1024.0 * 1024.0)
+                    } else {
+                        0.0
+                    };
+                    crate::progress_hud::update_progress(&safe_name, percent, speed_mb);
+                } else if percent >= 90 {
+                    crate::progress_hud::dismiss();
+                }
             }
             Err(e) => {
+                crate::progress_hud::dismiss();
                 let _ = fs::remove_file(&temp_part_path);
                 send_response(stream, 500, "Internal Server Error", "text/plain", e.to_string().as_bytes());
                 return;
             }
         }
     }
+
+    crate::progress_hud::dismiss();
 
     let _ = part_file.flush();
     drop(part_file);

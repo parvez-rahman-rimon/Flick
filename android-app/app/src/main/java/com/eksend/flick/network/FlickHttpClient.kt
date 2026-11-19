@@ -311,13 +311,14 @@ object FlickHttpClient {
         batchIndex: Int = 0,
         batchTotal: Int = 1,
         contentLength: Long = -1L,
+        onProgress: ((bytesSent: Long, totalBytes: Long, speedBps: Long) -> Unit)? = null,
         streamSupplier: () -> InputStream
     ): Result<UploadResult> {
         val client = getOrCreateClient(pcSpkiPin)
             .newBuilder()
-            .connectTimeout(5, TimeUnit.SECONDS)
-            .writeTimeout(60, TimeUnit.SECONDS)
-            .readTimeout(60, TimeUnit.SECONDS)
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .writeTimeout(0, TimeUnit.MILLISECONDS) // 0 disables write timeout for large streaming uploads
+            .readTimeout(180, TimeUnit.SECONDS)
             .build()
 
         val encodedFileName = URLEncoder.encode(fileName, "UTF-8")
@@ -329,7 +330,29 @@ object FlickHttpClient {
 
             override fun writeTo(sink: BufferedSink) {
                 streamSupplier().use { input ->
-                    sink.writeAll(input.source())
+                    val buffer = ByteArray(256 * 1024) // 256 KB high-throughput buffer (replaces default 8KB)
+                    var bytesRead: Int
+                    var totalSent = 0L
+                    var lastSpeedCalcTime = System.currentTimeMillis()
+                    var bytesSinceLastCalc = 0L
+                    var currentSpeedBps = 0L
+
+                    while (input.read(buffer).also { bytesRead = it } != -1) {
+                        sink.write(buffer, 0, bytesRead)
+                        sink.flush()
+                        totalSent += bytesRead
+                        bytesSinceLastCalc += bytesRead
+
+                        val now = System.currentTimeMillis()
+                        val elapsed = now - lastSpeedCalcTime
+                        if (elapsed >= 200) {
+                            currentSpeedBps = (bytesSinceLastCalc * 1000L) / elapsed.coerceAtLeast(1L)
+                            lastSpeedCalcTime = now
+                            bytesSinceLastCalc = 0L
+                        }
+
+                        onProgress?.invoke(totalSent, contentLength, currentSpeedBps)
+                    }
                 }
             }
         }

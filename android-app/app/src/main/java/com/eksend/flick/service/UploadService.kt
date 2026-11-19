@@ -51,6 +51,7 @@ class UploadService : Service() {
     }
 
     override fun onDestroy() {
+        UploadProgressBus.clear()
         serviceScope.cancel()
         super.onDestroy()
     }
@@ -146,6 +147,15 @@ class UploadService : Service() {
 
                 for ((index, uri) in uris.withIndex()) {
                     val metadata = queryUriMetadata(uri)
+                    UploadProgressBus.updateProgress(
+                        fileName = metadata.name,
+                        bytesSent = 0L,
+                        totalBytes = metadata.size,
+                        speedBps = 0L,
+                        batchIndex = index,
+                        batchTotal = totalCount
+                    )
+
                     if (totalCount > 1) {
                         notifManager?.notify(
                             NOTIFICATION_ID,
@@ -165,7 +175,17 @@ class UploadService : Service() {
                         batchId = batchId,
                         batchIndex = index,
                         batchTotal = totalCount,
-                        contentLength = metadata.size
+                        contentLength = metadata.size,
+                        onProgress = { sent, total, speed ->
+                            UploadProgressBus.updateProgress(
+                                fileName = metadata.name,
+                                bytesSent = sent,
+                                totalBytes = total,
+                                speedBps = speed,
+                                batchIndex = index,
+                                batchTotal = totalCount
+                            )
+                        }
                     ) {
                         contentResolver.openInputStream(uri)
                             ?: throw java.io.IOException("Cannot open input stream for $uri")
@@ -200,6 +220,7 @@ class UploadService : Service() {
                 }
             }
 
+            UploadProgressBus.clear()
             stopSelf()
         }
     }
@@ -240,8 +261,11 @@ class UploadService : Service() {
                 "Flick Transfers",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Shows progress during active Flick transfers to PC"
+                description = "Silent background transfer indicator"
                 setShowBadge(false)
+                enableLights(false)
+                enableVibration(false)
+                setSound(null, null)
             }
             val manager = getSystemService(NotificationManager::class.java)
             manager?.createNotificationChannel(channel)
