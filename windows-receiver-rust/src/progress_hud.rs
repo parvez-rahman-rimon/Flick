@@ -40,6 +40,8 @@ struct HudState {
     percent: u32,
     speed_mb: f64,
     is_visible: bool,
+    pos_x: i32,
+    pos_y: i32,
     mem_dc: HDC,
     dib_bits: *mut u8,
     #[allow(dead_code)]
@@ -199,6 +201,8 @@ fn run_hud_thread() {
                 percent: 0,
                 speed_mb: 0.0,
                 is_visible: false,
+                pos_x: x,
+                pos_y: y,
                 mem_dc,
                 dib_bits: bits_ptr as *mut u8,
                 dib_bitmap: dib_bitmap as isize,
@@ -352,7 +356,7 @@ unsafe fn render_and_commit(hwnd: HWND) {
     }
 
     // 6. Commit to Windows Layered Window
-    let mut pt_dst = POINT { x: 0, y: 0 };
+    let mut pt_dst = POINT { x: s.pos_x, y: s.pos_y };
     let mut size = SIZE {
         cx: HUD_W,
         cy: HUD_H,

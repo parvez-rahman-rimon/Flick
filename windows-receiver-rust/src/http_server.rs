@@ -293,7 +293,7 @@ pub fn start_http_receiver(
 
     thread::Builder::new()
         .name("flick-http-accept".to_string())
-        .stack_size(256 * 1024)
+        .stack_size(1024 * 1024)
         .spawn(move || {
             while r_clone.load(Ordering::SeqCst) {
                 match listener.accept() {
@@ -304,7 +304,7 @@ pub fn start_http_receiver(
 
                         let _ = thread::Builder::new()
                             .name("flick-conn-worker".to_string())
-                            .stack_size(256 * 1024)
+                            .stack_size(2 * 1024 * 1024)
                             .spawn(move || {
                                 handle_connection(stream, peer_addr.ip().to_string(), cfg_tls, c_creds);
                             });
@@ -816,7 +816,7 @@ fn handle_upload<S: Read + Write>(
     };
 
     let mut remaining = content_len;
-    let mut buf = [0u8; CHUNK_SIZE];
+    let mut buf = vec![0u8; CHUNK_SIZE];
 
     while remaining > 0 {
         let to_read = (remaining as usize).min(CHUNK_SIZE);
