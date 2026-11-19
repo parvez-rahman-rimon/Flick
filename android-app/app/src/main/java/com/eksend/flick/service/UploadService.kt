@@ -101,7 +101,30 @@ class UploadService : Service() {
         val modeOverride = intent.getStringExtra(EXTRA_CLIPBOARD_MODE) ?: prefs.clipboardModeOverride
 
         serviceScope.launch {
-            // 1. Resolve Target IP with automatic ping & fallback
+            val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
+            val wifiLock = wifiManager?.createWifiLock(
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    android.net.wifi.WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+                } else {
+                    android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF
+                },
+                "Flick:HighPerfUpload"
+            )?.apply {
+                setReferenceCounted(false)
+                acquire()
+            }
+
+            val powerManager = applicationContext.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+            val wakeLock = powerManager?.newWakeLock(
+                android.os.PowerManager.PARTIAL_WAKE_LOCK,
+                "Flick:UploadCpuWakeLock"
+            )?.apply {
+                setReferenceCounted(false)
+                acquire(10 * 60 * 1000L)
+            }
+
+            try {
+                // 1. Resolve Target IP with automatic ping & fallback
             val targetIp = PcAutoRouter.resolveTargetIp(applicationContext, pc)
             if (targetIp.isNullOrBlank()) {
                 HapticHelper.triggerError(applicationContext, "${pc.pcName} is offline or Flick is not running")
@@ -230,11 +253,16 @@ class UploadService : Service() {
                     kotlinx.coroutines.delay(200)
                 }
             }
-
+        } finally {
+            try {
+                if (wifiLock?.isHeld == true) wifiLock.release()
+                if (wakeLock?.isHeld == true) wakeLock.release()
+            } catch (_: Exception) {}
             UploadProgressBus.clear()
             stopSelf()
         }
     }
+}
 
     private data class UriMetadata(val name: String, val mimeType: String, val size: Long)
 
