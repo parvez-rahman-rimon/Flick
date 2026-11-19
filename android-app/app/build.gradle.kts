@@ -9,7 +9,7 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.eksend.flick"
+        applicationId = "com.flicknow.app"
         minSdk = 26
         targetSdk = 35
         versionCode = 230
