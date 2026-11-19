@@ -188,8 +188,18 @@ class UploadService : Service() {
                             )
                         }
                     ) {
-                        contentResolver.openInputStream(uri)
-                            ?: throw java.io.IOException("Cannot open input stream for $uri")
+                        val pfd = try {
+                            contentResolver.openFileDescriptor(uri, "r")
+                        } catch (_: Exception) {
+                            null
+                        }
+                        val rawStream = if (pfd != null) {
+                            android.os.ParcelFileDescriptor.AutoCloseInputStream(pfd)
+                        } else {
+                            contentResolver.openInputStream(uri)
+                                ?: throw java.io.IOException("Cannot open input stream for $uri")
+                        }
+                        java.io.BufferedInputStream(rawStream, 512 * 1024)
                     }
 
                     val elapsed = System.currentTimeMillis() - start

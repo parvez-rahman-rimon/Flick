@@ -48,7 +48,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 
 type HmacSha256 = Hmac<Sha256>;
 
-const CHUNK_SIZE: usize = 262144; // 256 KB high-throughput read buffer (upgraded from 64 KB)
+const CHUNK_SIZE: usize = 524288; // 512 KB high-throughput read buffer
 const MAX_ALLOWED_FILE_BYTES: u64 = 4 * 1024 * 1024 * 1024; // 4 GB max
 const SAFETY_DISK_BUFFER: u64 = 500 * 1024 * 1024; // 500 MB minimum remaining free space
 const MAX_PAIR_BODY_BYTES: usize = 64 * 1024; // 64 KB max
@@ -805,31 +805,35 @@ fn handle_upload<S: Read + Write>(
 
     let temp_part_path = save_dir.join(format!("flick_tmp_{}.part", Uuid::new_v4()));
 
-    // Stream 64 KB chunks to disk
+    // Stream chunks to disk with 2 MB buffered writer
     let start_time = Instant::now();
-    let mut part_file = match File::create(&temp_part_path) {
+    let part_file = match File::create(&temp_part_path) {
         Ok(f) => f,
         Err(e) => {
             send_response(stream, 500, "Internal Server Error", "text/plain", e.to_string().as_bytes());
             return;
         }
     };
+    let mut writer = std::io::BufWriter::with_capacity(2 * 1024 * 1024, part_file);
 
     let mut remaining = content_len;
     let mut buf = vec![0u8; CHUNK_SIZE];
+    let mut last_hud_time = Instant::now();
 
     while remaining > 0 {
         let to_read = (remaining as usize).min(CHUNK_SIZE);
         match stream.read(&mut buf[..to_read]) {
             Ok(0) => {
                 crate::progress_hud::dismiss();
+                drop(writer);
                 let _ = fs::remove_file(&temp_part_path);
                 send_response(stream, 400, "Bad Request", "text/plain", b"Unexpected EOF");
                 return;
             }
             Ok(n) => {
-                if part_file.write_all(&buf[..n]).is_err() {
+                if writer.write_all(&buf[..n]).is_err() {
                     crate::progress_hud::dismiss();
+                    drop(writer);
                     let _ = fs::remove_file(&temp_part_path);
                     send_response(stream, 500, "Internal Server Error", "text/plain", b"Disk write error");
                     return;
@@ -845,21 +849,26 @@ fn handle_upload<S: Read + Write>(
                 };
 
                 // User Rule:
-                // - Only show after 4 seconds has elapsed
+                // - Only show after 2.5s has elapsed (starts within 3s)
                 // - Automatically dismiss at >= 90% so screen is clean before spatial drop
-                if elapsed_secs >= 4.0 && percent < 90 {
-                    let speed_mb = if elapsed_secs > 0.0 {
-                        (bytes_read as f64 / elapsed_secs as f64) / (1024.0 * 1024.0)
-                    } else {
-                        0.0
-                    };
-                    crate::progress_hud::update_progress(&safe_name, percent, speed_mb);
+                // - Throttle HUD telemetry to max 10 FPS (100ms) to prevent message queue lag
+                if elapsed_secs >= 2.5 && percent < 90 {
+                    if last_hud_time.elapsed() >= Duration::from_millis(100) {
+                        last_hud_time = Instant::now();
+                        let speed_mb = if elapsed_secs > 0.0 {
+                            (bytes_read as f64 / elapsed_secs as f64) / (1024.0 * 1024.0)
+                        } else {
+                            0.0
+                        };
+                        crate::progress_hud::update_progress(&safe_name, percent, speed_mb);
+                    }
                 } else if percent >= 90 {
                     crate::progress_hud::dismiss();
                 }
             }
             Err(e) => {
                 crate::progress_hud::dismiss();
+                drop(writer);
                 let _ = fs::remove_file(&temp_part_path);
                 send_response(stream, 500, "Internal Server Error", "text/plain", e.to_string().as_bytes());
                 return;
@@ -869,8 +878,8 @@ fn handle_upload<S: Read + Write>(
 
     crate::progress_hud::dismiss();
 
-    let _ = part_file.flush();
-    drop(part_file);
+    let _ = writer.flush();
+    drop(writer);
 
     // Atomic rename to final path
     if fs::rename(&temp_part_path, &final_path).is_err() {

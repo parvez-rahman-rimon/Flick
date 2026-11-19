@@ -9,7 +9,7 @@
 
 use std::ffi::{c_void, OsStr};
 use std::os::windows::ffi::OsStrExt;
-use std::sync::atomic::{AtomicPtr, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
 use std::sync::Mutex;
 
 use windows_sys::Win32::Foundation::{HWND, LRESULT, POINT, RECT, SIZE};
@@ -54,6 +54,7 @@ unsafe impl Send for HudState {}
 
 static HUD_HWND: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
 static HUD_STATE: Mutex<Option<HudState>> = Mutex::new(None);
+static HUD_UPDATE_PENDING: AtomicBool = AtomicBool::new(false);
 
 pub fn update_progress(file_name: &str, percent: u32, speed_mb: f64) {
     ensure_hud_window();
@@ -72,8 +73,11 @@ pub fn update_progress(file_name: &str, percent: u32, speed_mb: f64) {
         }
     }
 
-    unsafe {
-        PostMessageW(hwnd, WM_HUD_UPDATE, 0, 0);
+    // Coalesce messages: only post WM_HUD_UPDATE if one isn't already queued
+    if !HUD_UPDATE_PENDING.swap(true, Ordering::SeqCst) {
+        unsafe {
+            PostMessageW(hwnd, WM_HUD_UPDATE, 0, 0);
+        }
     }
 }
 
@@ -231,10 +235,12 @@ unsafe extern "system" fn hud_wnd_proc(
 ) -> LRESULT {
     match msg {
         WM_HUD_UPDATE => {
+            HUD_UPDATE_PENDING.store(false, Ordering::SeqCst);
             render_and_commit(hwnd);
             0
         }
         WM_HUD_DISMISS => {
+            HUD_UPDATE_PENDING.store(false, Ordering::SeqCst);
             let mut guard = HUD_STATE.lock().unwrap();
             if let Some(ref mut s) = *guard {
                 if s.is_visible {

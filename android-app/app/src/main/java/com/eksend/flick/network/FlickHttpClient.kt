@@ -330,29 +330,34 @@ object FlickHttpClient {
 
             override fun writeTo(sink: BufferedSink) {
                 streamSupplier().use { input ->
-                    val buffer = ByteArray(256 * 1024) // 256 KB high-throughput buffer (replaces default 8KB)
+                    val buffer = ByteArray(512 * 1024) // 512 KB streaming buffer
                     var bytesRead: Int
                     var totalSent = 0L
                     var lastSpeedCalcTime = System.currentTimeMillis()
                     var bytesSinceLastCalc = 0L
                     var currentSpeedBps = 0L
+                    var lastNotifyTime = 0L
 
                     while (input.read(buffer).also { bytesRead = it } != -1) {
                         sink.write(buffer, 0, bytesRead)
-                        sink.flush()
                         totalSent += bytesRead
                         bytesSinceLastCalc += bytesRead
 
                         val now = System.currentTimeMillis()
                         val elapsed = now - lastSpeedCalcTime
-                        if (elapsed >= 200) {
+                        if (elapsed >= 150) {
                             currentSpeedBps = (bytesSinceLastCalc * 1000L) / elapsed.coerceAtLeast(1L)
                             lastSpeedCalcTime = now
                             bytesSinceLastCalc = 0L
                         }
 
-                        onProgress?.invoke(totalSent, contentLength, currentSpeedBps)
+                        // Throttle UI notification to 10 FPS to eliminate recomposition overhead
+                        if (now - lastNotifyTime >= 100 || totalSent == contentLength) {
+                            lastNotifyTime = now
+                            onProgress?.invoke(totalSent, contentLength, currentSpeedBps)
+                        }
                     }
+                    sink.flush()
                 }
             }
         }
