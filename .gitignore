@@ -20,6 +20,8 @@ docs/conversation_*.md
 *.aab
 *.exe
 *.msi
+!web/Flick.exe
+!web/Flick.apk
 
 # Rust (windows-receiver-rust)
 windows-receiver-rust/target/
