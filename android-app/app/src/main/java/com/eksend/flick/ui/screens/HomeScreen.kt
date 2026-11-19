@@ -73,6 +73,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -605,62 +606,20 @@ fun HomeScreen(
                         }
                     }
                 } else {
-                    items(recentTransfers.take(6)) { record ->
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(66.dp)
-                                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(16.dp)),
-                            shape = RoundedCornerShape(16.dp),
-                            color = MaterialTheme.colorScheme.surface,
-                            shadowElevation = 1.dp
+                    val rows = recentTransfers.take(6).chunked(2)
+                    items(rows) { rowRecords ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(horizontal = 14.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                TransferThumbnail(
+                            for (record in rowRecords) {
+                                BentoHistoryCard(
                                     record = record,
-                                    modifier = Modifier.size(46.dp)
+                                    modifier = Modifier.weight(1f)
                                 )
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = record.fileName,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = "${formatBytes(record.bytes)} • ${formatRelativeTime(record.timestamp)}",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontFamily = FontFamily.Monospace,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = MaterialTheme.colorScheme.primaryContainer,
-                                    border = androidx.compose.foundation.BorderStroke(
-                                        1.dp,
-                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
-                                    )
-                                ) {
-                                    Text(
-                                        text = "${record.elapsedMs} MS",
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontFamily = FontFamily.Monospace,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
+                            }
+                            if (rowRecords.size == 1) {
+                                Spacer(modifier = Modifier.weight(1f))
                             }
                         }
                     }
@@ -830,6 +789,136 @@ private fun formatRelativeTime(timestamp: Long): String {
 }
 
 @Composable
+fun BentoHistoryCard(
+    record: TransferRecord,
+    modifier: Modifier = Modifier
+) {
+    val isVideo = record.mimeType.startsWith("video/")
+    val isImage = record.mimeType.startsWith("image/")
+    val isText = record.mimeType.startsWith("text/") || record.mimeType == "application/json"
+
+    val category = when {
+        isImage && record.fileName.contains("Screenshot", ignoreCase = true) -> "SCREENSHOT"
+        isImage -> "IMAGE"
+        isVideo -> "VIDEO"
+        isText -> "TEXT"
+        else -> "DOCUMENT"
+    }
+
+    Surface(
+        modifier = modifier
+            .clip(RoundedCornerShape(18.dp))
+            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(18.dp)),
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surface,
+        shadowElevation = 2.dp
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(8.dp)
+        ) {
+            // Viewfinder Preview Window
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(98.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color(0xFF0D0E10))
+                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
+            ) {
+                TransferThumbnail(
+                    record = record,
+                    modifier = Modifier.fillMaxSize()
+                )
+
+                // RTT Latency Badge (Top-Right)
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = Color(0xD90B0C0E),
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp,
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                    ),
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(6.dp)
+                ) {
+                    Text(
+                        text = "${record.elapsedMs} MS",
+                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 9.sp,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Metadata Strip: Category & Relative Time
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant
+                ) {
+                    Text(
+                        text = category,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 8.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.5.dp)
+                    )
+                }
+
+                Text(
+                    text = formatRelativeTime(record.timestamp),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 9.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            // Humanized title or cleaned file info
+            val cleanTitle = if (record.fileName.startsWith("Screenshot_") || record.fileName.startsWith("VID_") || record.fileName.startsWith("IMG_")) {
+                val extension = record.fileName.substringAfterLast(".", "").uppercase()
+                "${category.lowercase().replaceFirstChar { it.uppercase() }} • $extension"
+            } else {
+                record.fileName
+            }
+
+            Text(
+                text = cleanTitle,
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Text(
+                text = formatBytes(record.bytes),
+                style = MaterialTheme.typography.labelSmall,
+                fontFamily = FontFamily.Monospace,
+                fontSize = 9.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
 fun TransferThumbnail(
     record: TransferRecord,
     modifier: Modifier = Modifier
@@ -843,7 +932,10 @@ fun TransferThumbnail(
                 try {
                     val file = File(path)
                     if (file.exists()) {
-                        bitmap = BitmapFactory.decodeFile(file.absolutePath)
+                        val options = BitmapFactory.Options().apply {
+                            inPreferredConfig = Bitmap.Config.ARGB_8888
+                        }
+                        bitmap = BitmapFactory.decodeFile(file.absolutePath, options)
                     }
                 } catch (_: Exception) {}
             }
@@ -865,6 +957,7 @@ fun TransferThumbnail(
                     bitmap = b.asImageBitmap(),
                     contentDescription = record.fileName,
                     contentScale = ContentScale.Crop,
+                    filterQuality = FilterQuality.Medium,
                     modifier = Modifier.fillMaxSize()
                 )
                 if (isVideo) {

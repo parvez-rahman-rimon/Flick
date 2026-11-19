@@ -1,8 +1,12 @@
 <resources>
-    <style name="Theme.Flick" parent="android:Theme.Material.Light.NoActionBar">
+    <color name="flick_bg">#0A0B0E</color>
+
+    <style name="Theme.Flick" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/flick_bg</item>
+        <item name="android:colorBackground">@color/flick_bg</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
-        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightStatusBar">false</item>
     </style>
 
     <style name="Theme.Flick.TranslucentNoDisplay" parent="@android:style/Theme.NoDisplay">
@@ -16,7 +20,7 @@
 
     <style name="Theme.Flick.SpatialCanvas" parent="android:Theme.Material.NoActionBar">
         <item name="android:windowIsTranslucent">true</item>
-        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowBackground">@color/flick_bg</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowContentOverlay">@null</item>

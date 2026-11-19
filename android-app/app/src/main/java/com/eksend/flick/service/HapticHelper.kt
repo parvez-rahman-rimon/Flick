@@ -38,7 +38,7 @@ object HapticHelper {
                 val effect = if (amplitudes != null && amplitudes.size == timings.size) {
                     VibrationEffect.createWaveform(timings, amplitudes, -1)
                 } else if (timings.size == 2) {
-                    VibrationEffect.createOneShot(timings[1], 240)
+                    VibrationEffect.createOneShot(timings[1], 110)
                 } else {
                     VibrationEffect.createWaveform(timings, -1)
                 }
@@ -47,7 +47,7 @@ object HapticHelper {
                 val effect = if (amplitudes != null && amplitudes.size == timings.size) {
                     VibrationEffect.createWaveform(timings, amplitudes, -1)
                 } else if (timings.size == 2) {
-                    VibrationEffect.createOneShot(timings[1], 240)
+                    VibrationEffect.createOneShot(timings[1], 110)
                 } else {
                     VibrationEffect.createWaveform(timings, -1)
                 }
@@ -71,9 +71,10 @@ object HapticHelper {
             val vibrator = getVibrator(context) ?: return
             if (!vibrator.hasVibrator()) return
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                // 45ms velvety pulse with USAGE_TOUCH (guaranteed execution even when notification vibrations are OFF)
-                val effect = VibrationEffect.createOneShot(45, VibrationEffect.DEFAULT_AMPLITUDE)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+                vibrator.areAllEffectsSupported(VibrationEffect.EFFECT_CLICK) == Vibrator.VIBRATION_EFFECT_SUPPORT_YES
+            ) {
+                val effect = VibrationEffect.createPredefined(VibrationEffect.EFFECT_CLICK)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     val attrs = VibrationAttributes.Builder()
                         .setUsage(VibrationAttributes.USAGE_TOUCH)
@@ -83,25 +84,53 @@ object HapticHelper {
                     vibrator.vibrate(effect)
                 }
             } else {
-                @Suppress("DEPRECATION")
-                vibrator.vibrate(45)
+                performVibration(
+                    context,
+                    longArrayOf(0, 30),
+                    intArrayOf(0, 80)
+                )
             }
         } catch (_: Exception) {
-            try {
-                val vibrator = getVibrator(context)
-                @Suppress("DEPRECATION")
-                vibrator?.vibrate(45)
-            } catch (_: Exception) {}
+            performVibration(context, longArrayOf(0, 25), intArrayOf(0, 80))
         }
     }
 
-    fun triggerSuccess(context: Context, customToast: String? = "⚡ Copied to PC Clipboard") {
-        // Distinctive tactile double pulse: [45ms pulse, 50ms pause, 65ms crisp pulse]
-        performVibration(
-            context,
-            longArrayOf(0, 45, 50, 65),
-            intArrayOf(0, 200, 0, 255)
-        )
+    fun triggerSuccess(context: Context, customToast: String? = null) {
+        val prefs = FlickPreferences(context)
+        if (!prefs.isHapticFeedbackEnabled) return
+
+        try {
+            val vibrator = getVibrator(context)
+            if (vibrator != null && vibrator.hasVibrator()) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+                    vibrator.areAllEffectsSupported(VibrationEffect.EFFECT_DOUBLE_CLICK) == Vibrator.VIBRATION_EFFECT_SUPPORT_YES
+                ) {
+                    // Pristine, silky-smooth native hardware double-click haptic
+                    val effect = VibrationEffect.createPredefined(VibrationEffect.EFFECT_DOUBLE_CLICK)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        val attrs = VibrationAttributes.Builder()
+                            .setUsage(VibrationAttributes.USAGE_TOUCH)
+                            .build()
+                        vibrator.vibrate(effect, attrs)
+                    } else {
+                        vibrator.vibrate(effect)
+                    }
+                } else {
+                    // Soft, warm double-pulse fallback
+                    performVibration(
+                        context,
+                        longArrayOf(0, 25, 45, 35),
+                        intArrayOf(0, 60, 0, 95)
+                    )
+                }
+            }
+        } catch (_: Exception) {
+            performVibration(
+                context,
+                longArrayOf(0, 25, 45, 35),
+                intArrayOf(0, 60, 0, 95)
+            )
+        }
 
         if (customToast != null) {
             Handler(Looper.getMainLooper()).post {

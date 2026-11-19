@@ -6,14 +6,21 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
 import com.eksend.flick.crypto.KeystoreManager
 import com.eksend.flick.data.FlickPreferences
@@ -56,34 +63,47 @@ class MainActivity : ComponentActivity() {
                     currentScreen = Screen.HOME
                 }
 
-                AnimatedContent(
-                    targetState = currentScreen,
-                    transitionSpec = { fadeIn() togetherWith fadeOut() },
-                    label = "FlickScreenNavigation"
-                ) { screen ->
-                    when (screen) {
-                        Screen.HOME -> {
-                            HomeScreen(
-                                preferences = preferences,
-                                udpListener = udpDiscoveryListener,
-                                onNavigateToSettings = { currentScreen = Screen.SETTINGS },
-                                onNavigateToScanner = { currentScreen = Screen.SCANNER }
-                            )
-                        }
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    AnimatedContent(
+                        targetState = currentScreen,
+                        transitionSpec = {
+                            if (targetState.ordinal > initialState.ordinal) {
+                                (slideInHorizontally(animationSpec = tween(240)) { it / 3 } + fadeIn(animationSpec = tween(240)))
+                                    .togetherWith(slideOutHorizontally(animationSpec = tween(200)) { -it / 4 } + fadeOut(animationSpec = tween(200)))
+                            } else {
+                                (slideInHorizontally(animationSpec = tween(240)) { -it / 3 } + fadeIn(animationSpec = tween(240)))
+                                    .togetherWith(slideOutHorizontally(animationSpec = tween(200)) { it / 4 } + fadeOut(animationSpec = tween(200)))
+                            }
+                        },
+                        label = "FlickScreenNavigation"
+                    ) { screen ->
+                        when (screen) {
+                            Screen.HOME -> {
+                                HomeScreen(
+                                    preferences = preferences,
+                                    udpListener = udpDiscoveryListener,
+                                    onNavigateToSettings = { currentScreen = Screen.SETTINGS },
+                                    onNavigateToScanner = { currentScreen = Screen.SCANNER }
+                                )
+                            }
 
-                        Screen.SETTINGS -> {
-                            DeviceSettingsScreen(
-                                preferences = preferences,
-                                onBack = { currentScreen = Screen.HOME }
-                            )
-                        }
+                            Screen.SETTINGS -> {
+                                DeviceSettingsScreen(
+                                    preferences = preferences,
+                                    onBack = { currentScreen = Screen.HOME }
+                                )
+                            }
 
-                        Screen.SCANNER -> {
-                            PairingScannerScreen(
-                                preferences = preferences,
-                                onPairSuccess = { currentScreen = Screen.HOME },
-                                onBack = { currentScreen = Screen.HOME }
-                            )
+                            Screen.SCANNER -> {
+                                PairingScannerScreen(
+                                    preferences = preferences,
+                                    onPairSuccess = { currentScreen = Screen.HOME },
+                                    onBack = { currentScreen = Screen.HOME }
+                                )
+                            }
                         }
                     }
                 }

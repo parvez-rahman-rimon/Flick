@@ -7,6 +7,9 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.ImageDecoder
 import android.net.Uri
 import android.os.Build
 import android.os.IBinder
@@ -126,7 +129,7 @@ class UploadService : Service() {
                             success = true
                         )
                     )
-                    HapticHelper.triggerSuccess(applicationContext, "⚡ Copied to PC Clipboard")
+                    HapticHelper.triggerSuccess(applicationContext)
                 } else {
                     HapticHelper.triggerError(applicationContext, "Text teleport failed")
                 }
@@ -186,8 +189,7 @@ class UploadService : Service() {
                 }
 
                 if (successCount == totalCount) {
-                    val msg = if (totalCount == 1) "⚡ Copied to PC Clipboard" else "⚡ $totalCount files ready to paste on PC"
-                    HapticHelper.triggerSuccess(applicationContext, msg)
+                    HapticHelper.triggerSuccess(applicationContext)
                     kotlinx.coroutines.delay(160)
                 } else if (successCount > 0) {
                     HapticHelper.triggerError(applicationContext, "Sent $successCount of $totalCount files")
@@ -265,30 +267,43 @@ class UploadService : Service() {
             val thumbDir = java.io.File(cacheDir, "thumbnails").apply { mkdirs() }
             val thumbFile = java.io.File(thumbDir, "${java.util.UUID.randomUUID()}.jpg")
 
-            var bitmap: android.graphics.Bitmap? = null
+            var bitmap: Bitmap? = null
+            val targetDimension = 720 // High definition 720p thumbnail for crisp display on OLED/high-DPI screens
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                try {
-                    bitmap = contentResolver.loadThumbnail(uri, android.util.Size(320, 320), null)
-                } catch (_: Exception) {}
-            }
-
-            if (bitmap == null) {
-                if (isImage) {
+            if (isImage) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    try {
+                        val source = ImageDecoder.createSource(contentResolver, uri)
+                        bitmap = ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
+                            val sample = maxOf(info.size.width / targetDimension, info.size.height / targetDimension, 1)
+                            decoder.setTargetSampleSize(sample)
+                            decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                        }
+                    } catch (_: Exception) {}
+                }
+                if (bitmap == null) {
                     contentResolver.openInputStream(uri)?.use { stream ->
-                        val options = android.graphics.BitmapFactory.Options().apply {
+                        val options = BitmapFactory.Options().apply {
                             inJustDecodeBounds = true
                         }
-                        android.graphics.BitmapFactory.decodeStream(stream, null, options)
-                        val sampleSize = calculateInSampleSize(options, 320, 320)
-                        val decodeOptions = android.graphics.BitmapFactory.Options().apply {
+                        BitmapFactory.decodeStream(stream, null, options)
+                        val sampleSize = calculateInSampleSize(options, targetDimension, targetDimension)
+                        val decodeOptions = BitmapFactory.Options().apply {
                             inSampleSize = sampleSize
+                            inPreferredConfig = Bitmap.Config.ARGB_8888
                         }
                         contentResolver.openInputStream(uri)?.use { s2 ->
-                            bitmap = android.graphics.BitmapFactory.decodeStream(s2, null, decodeOptions)
+                            bitmap = BitmapFactory.decodeStream(s2, null, decodeOptions)
                         }
                     }
-                } else if (isVideo) {
+                }
+            } else if (isVideo) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    try {
+                        bitmap = contentResolver.loadThumbnail(uri, android.util.Size(targetDimension, targetDimension), null)
+                    } catch (_: Exception) {}
+                }
+                if (bitmap == null) {
                     try {
                         val retriever = android.media.MediaMetadataRetriever()
                         retriever.setDataSource(applicationContext, uri)
@@ -300,9 +315,9 @@ class UploadService : Service() {
 
             if (bitmap != null) {
                 val maxDim = maxOf(bitmap.width, bitmap.height)
-                val targetBmp = if (maxDim > 320) {
-                    val scale = 320f / maxDim
-                    android.graphics.Bitmap.createScaledBitmap(
+                val targetBmp = if (maxDim > targetDimension) {
+                    val scale = targetDimension.toFloat() / maxDim
+                    Bitmap.createScaledBitmap(
                         bitmap,
                         (bitmap.width * scale).toInt().coerceAtLeast(1),
                         (bitmap.height * scale).toInt().coerceAtLeast(1),
@@ -313,7 +328,7 @@ class UploadService : Service() {
                 }
 
                 java.io.FileOutputStream(thumbFile).use { out ->
-                    targetBmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, out)
+                    targetBmp.compress(Bitmap.CompressFormat.JPEG, 92, out)
                 }
                 thumbFile.absolutePath
             } else {
