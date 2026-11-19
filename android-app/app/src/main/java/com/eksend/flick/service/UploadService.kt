@@ -21,6 +21,7 @@ import com.eksend.flick.data.FlickPreferences
 import com.eksend.flick.data.TransferRecord
 import com.eksend.flick.network.FlickHttpClient
 import com.eksend.flick.network.PcAutoRouter
+import com.eksend.flick.network.TurboLinkController
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -31,6 +32,7 @@ import kotlinx.coroutines.withContext
 class UploadService : Service() {
 
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val activeTurboSession = java.util.concurrent.atomic.AtomicReference<TurboLinkController.TurboSession?>(null)
 
     companion object {
         const val ACTION_UPLOAD = "com.eksend.flick.action.UPLOAD"
@@ -51,6 +53,7 @@ class UploadService : Service() {
     }
 
     override fun onDestroy() {
+        activeTurboSession.getAndSet(null)?.closeQuietly()
         UploadProgressBus.clear()
         serviceScope.cancel()
         super.onDestroy()
@@ -102,26 +105,30 @@ class UploadService : Service() {
 
         serviceScope.launch {
             val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
-            val wifiLock = wifiManager?.createWifiLock(
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    android.net.wifi.WifiManager.WIFI_MODE_FULL_LOW_LATENCY
-                } else {
-                    android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF
-                },
-                "Flick:HighPerfUpload"
-            )?.apply {
-                setReferenceCounted(false)
-                acquire()
-            }
+            val wifiLock = try {
+                wifiManager?.createWifiLock(
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        android.net.wifi.WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+                    } else {
+                        android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF
+                    },
+                    "Flick:HighPerfUpload"
+                )?.apply {
+                    setReferenceCounted(false)
+                    acquire()
+                }
+            } catch (_: Exception) { null }
 
             val powerManager = applicationContext.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
-            val wakeLock = powerManager?.newWakeLock(
-                android.os.PowerManager.PARTIAL_WAKE_LOCK,
-                "Flick:UploadCpuWakeLock"
-            )?.apply {
-                setReferenceCounted(false)
-                acquire(10 * 60 * 1000L)
-            }
+            val wakeLock = try {
+                powerManager?.newWakeLock(
+                    android.os.PowerManager.PARTIAL_WAKE_LOCK,
+                    "Flick:UploadCpuWakeLock"
+                )?.apply {
+                    setReferenceCounted(false)
+                    acquire(10 * 60 * 1000L)
+                }
+            } catch (_: Exception) { null }
 
             try {
                 // 1. Resolve Target IP with automatic ping & fallback
@@ -169,15 +176,67 @@ class UploadService : Service() {
                 val notifManager = getSystemService(NotificationManager::class.java)
                 var successCount = 0
 
+                val metadataList = uris.map { queryUriMetadata(it) }
+                val totalBatchBytes = metadataList.sumOf { it.size.coerceAtLeast(0L) }
+
+                val alreadyOnHotspot = PcAutoRouter.isOnDirectHotspotSubnet(applicationContext, targetIp)
+                var effectiveTargetIp = targetIp
+                var effectiveLinkMode = if (alreadyOnHotspot) "HOTSPOT_DIRECT" else "LAN"
+
+                if (!alreadyOnHotspot && prefs.isTurboLinkEnabled && totalBatchBytes >= FlickPreferences.TURBO_THRESHOLD_BYTES) {
+                    UploadProgressBus.updateLinkMode(
+                        linkMode = "TURBO_NEGOTIATING",
+                        fileName = metadataList.firstOrNull()?.name ?: ""
+                    )
+                    notifManager?.notify(
+                        NOTIFICATION_ID,
+                        buildForegroundNotification("Engaging 5GHz Turbo Link...")
+                    )
+                    val turboOutcome = TurboLinkController.establishTurboLink(
+                        context = applicationContext,
+                        lanIp = targetIp,
+                        pc = pc
+                    )
+                    val turboSession = turboOutcome.session
+                    if (turboSession != null) {
+                        activeTurboSession.set(turboSession)
+                        effectiveTargetIp = turboSession.turboIp
+                        effectiveLinkMode = "TURBO_5G"
+                        notifManager?.notify(
+                            NOTIFICATION_ID,
+                            buildForegroundNotification("TURBO 5G // Direct P2P Active")
+                        )
+                    } else {
+                        effectiveLinkMode = "LAN"
+                        if (turboOutcome.pcNeedsLanRecoveryWait) {
+                            UploadProgressBus.updateLinkMode("RESTORING", metadataList.firstOrNull()?.name ?: "")
+                            val waitDeadline = System.currentTimeMillis() + 12000L
+                            while (System.currentTimeMillis() < waitDeadline) {
+                                val pingBack = FlickHttpClient.ping(
+                                    ip = targetIp,
+                                    port = pc.port,
+                                    authToken = pc.authToken,
+                                    pcSpkiPin = pc.pcSpkiPin,
+                                    connectTimeoutMs = 600,
+                                    readTimeoutMs = 800
+                                )
+                                if (pingBack.isSuccess) break
+                                kotlinx.coroutines.delay(400)
+                            }
+                        }
+                    }
+                }
+
                 for ((index, uri) in uris.withIndex()) {
-                    val metadata = queryUriMetadata(uri)
+                    val metadata = metadataList[index]
                     UploadProgressBus.updateProgress(
                         fileName = metadata.name,
                         bytesSent = 0L,
                         totalBytes = metadata.size,
                         speedBps = 0L,
                         batchIndex = index,
-                        batchTotal = totalCount
+                        batchTotal = totalCount,
+                        linkMode = effectiveLinkMode
                     )
 
                     if (totalCount > 1) {
@@ -189,7 +248,7 @@ class UploadService : Service() {
                     val start = System.currentTimeMillis()
 
                     val uploadRes = FlickHttpClient.uploadStream(
-                        targetIp = targetIp,
+                        targetIp = effectiveTargetIp,
                         port = pc.port,
                         authToken = pc.authToken,
                         pcSpkiPin = pc.pcSpkiPin,
@@ -207,7 +266,8 @@ class UploadService : Service() {
                                 totalBytes = total,
                                 speedBps = speed,
                                 batchIndex = index,
-                                batchTotal = totalCount
+                                batchTotal = totalCount,
+                                linkMode = effectiveLinkMode
                             )
                         }
                     ) {
@@ -254,6 +314,10 @@ class UploadService : Service() {
                 }
             }
         } finally {
+            activeTurboSession.getAndSet(null)?.let { session ->
+                UploadProgressBus.updateLinkMode("RESTORING")
+                TurboLinkController.teardown(session, pc)
+            }
             try {
                 if (wifiLock?.isHeld == true) wifiLock.release()
                 if (wakeLock?.isHeld == true) wakeLock.release()

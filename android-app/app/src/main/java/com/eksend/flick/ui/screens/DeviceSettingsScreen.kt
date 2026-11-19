@@ -1,6 +1,8 @@
 package com.eksend.flick.ui.screens
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -26,6 +28,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.FolderCopy
@@ -62,12 +65,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.eksend.flick.data.ClipboardMode
 import com.eksend.flick.data.FlickPreferences
+import com.eksend.flick.network.TurboLinkController
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -83,6 +88,21 @@ fun DeviceSettingsScreen(
     }
     var autoIpEnabled by remember {
         mutableStateOf(preferences.isAutoUpdateIpEnabled)
+    }
+    var turboEnabled by remember {
+        mutableStateOf(preferences.isTurboLinkEnabled)
+    }
+    val context = LocalContext.current
+    val turboPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            turboEnabled = true
+            preferences.isTurboLinkEnabled = true
+        } else {
+            turboEnabled = false
+            preferences.isTurboLinkEnabled = false
+        }
     }
     val activePc = preferences.getActivePc()
 
@@ -355,6 +375,72 @@ fun DeviceSettingsScreen(
                                     onCheckedChange = {
                                         autoIpEnabled = it
                                         preferences.isAutoUpdateIpEnabled = it
+                                    },
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = Color.White,
+                                        checkedTrackColor = MaterialTheme.colorScheme.primary,
+                                        uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant
+                                    )
+                                )
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(1.dp)
+                                    .background(MaterialTheme.colorScheme.outlineVariant)
+                            )
+
+                            // Flick Turbo Link (> 400 MB) switch
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    modifier = Modifier.weight(1f),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(38.dp)
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(10.dp)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Bolt,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                    Column {
+                                        Text(
+                                            text = "Turbo Direct Link (> 150 MB)",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Text(
+                                            text = "Autonomous 5GHz P2P channel for 40+ MB/s payloads",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                                Switch(
+                                    checked = turboEnabled,
+                                    onCheckedChange = { wantEnable ->
+                                        if (wantEnable && !TurboLinkController.hasRequiredPermission(context)) {
+                                            turboPermissionLauncher.launch(TurboLinkController.requiredPermissionName())
+                                        } else {
+                                            turboEnabled = wantEnable
+                                            preferences.isTurboLinkEnabled = wantEnable
+                                        }
                                     },
                                     colors = SwitchDefaults.colors(
                                         checkedThumbColor = Color.White,

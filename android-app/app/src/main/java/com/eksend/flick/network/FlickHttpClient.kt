@@ -58,12 +58,13 @@ object FlickHttpClient {
         port: Int = 45455,
         authToken: String? = null,
         pcSpkiPin: String = "",
-        connectTimeoutMs: Long = 300
+        connectTimeoutMs: Long = 300,
+        readTimeoutMs: Long = 700
     ): Result<PcOnlineState> {
         val base = getOrCreateClient(pcSpkiPin)
         val client = base.newBuilder()
             .connectTimeout(connectTimeoutMs, TimeUnit.MILLISECONDS)
-            .readTimeout(500, TimeUnit.MILLISECONDS)
+            .readTimeout(readTimeoutMs, TimeUnit.MILLISECONDS)
             .build()
 
         val scheme = if (pcSpkiPin.isNotEmpty()) "https" else "http"
@@ -293,6 +294,86 @@ object FlickHttpClient {
                 } else {
                     Result.success(Unit)
                 }
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    fun initiateTurbo(
+        targetIp: String,
+        port: Int = 45455,
+        authToken: String = "",
+        pcSpkiPin: String = "",
+        ssid: String,
+        key: String,
+        sessionId: String
+    ): Result<Boolean> {
+        val client = getOrCreateClient(pcSpkiPin)
+            .newBuilder()
+            .connectTimeout(900, TimeUnit.MILLISECONDS)
+            .readTimeout(1200, TimeUnit.MILLISECONDS)
+            .build()
+
+        val jsonBody = JSONObject().apply {
+            put("ssid", ssid)
+            put("key", key)
+            put("session_id", sessionId)
+        }
+
+        val scheme = if (pcSpkiPin.isNotEmpty()) "https" else "http"
+        val reqBuilder = Request.Builder()
+            .url("$scheme://$targetIp:$port/turbo/initiate")
+            .post(jsonBody.toString().toRequestBody("application/json".toMediaTypeOrNull()))
+
+        if (authToken.isNotEmpty()) {
+            reqBuilder.addHeader("X-Flick-Token", authToken)
+        }
+
+        return try {
+            client.newCall(reqBuilder.build()).execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    return Result.failure(Exception("Turbo initiate HTTP ${resp.code}"))
+                }
+                val json = JSONObject(resp.body?.string() ?: "{}")
+                val status = json.optString("status", "")
+                Result.success(status == "switching")
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    fun teardownTurbo(
+        targetIp: String,
+        port: Int = 45455,
+        authToken: String = "",
+        pcSpkiPin: String = "",
+        sessionId: String
+    ): Result<Unit> {
+        val client = getOrCreateClient(pcSpkiPin)
+            .newBuilder()
+            .connectTimeout(600, TimeUnit.MILLISECONDS)
+            .readTimeout(800, TimeUnit.MILLISECONDS)
+            .build()
+
+        val jsonBody = JSONObject().apply {
+            put("session_id", sessionId)
+        }
+
+        val scheme = if (pcSpkiPin.isNotEmpty()) "https" else "http"
+        val reqBuilder = Request.Builder()
+            .url("$scheme://$targetIp:$port/turbo/teardown")
+            .post(jsonBody.toString().toRequestBody("application/json".toMediaTypeOrNull()))
+
+        if (authToken.isNotEmpty()) {
+            reqBuilder.addHeader("X-Flick-Token", authToken)
+        }
+
+        return try {
+            client.newCall(reqBuilder.build()).execute().use { resp ->
+                if (resp.isSuccessful) Result.success(Unit)
+                else Result.failure(Exception("Turbo teardown HTTP ${resp.code}"))
             }
         } catch (e: Exception) {
             Result.failure(e)

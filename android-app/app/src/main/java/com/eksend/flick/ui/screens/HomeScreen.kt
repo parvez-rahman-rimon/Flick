@@ -88,6 +88,7 @@ import com.eksend.flick.data.FlickPreferences
 import com.eksend.flick.data.PcOnlineState
 import com.eksend.flick.data.TransferRecord
 import com.eksend.flick.network.FlickHttpClient
+import com.eksend.flick.network.PcAutoRouter
 import com.eksend.flick.network.UdpDiscoveryListener
 import com.eksend.flick.service.HapticHelper
 import com.eksend.flick.service.UploadProgressBus
@@ -151,29 +152,59 @@ fun HomeScreen(
         }
     }
 
-    // Ping check function
-    fun checkPcHealth() {
+    // Ping check function (auto-resolves Hotspot / DHCP IP changes via PcAutoRouter)
+    fun checkPcHealth(showSpinner: Boolean = true) {
         val pc = activePc ?: return
-        isPinging = true
+        if (isPinging) return
+        if (showSpinner) isPinging = true
         scope.launch(Dispatchers.IO) {
-            val result = FlickHttpClient.ping(
+            val directHotspot = PcAutoRouter.isOnDirectHotspotSubnet(context, pc.lastKnownIp)
+            var result = FlickHttpClient.ping(
                 ip = pc.lastKnownIp,
                 port = pc.port,
                 authToken = pc.authToken,
                 pcSpkiPin = pc.pcSpkiPin,
-                connectTimeoutMs = 600
+                connectTimeoutMs = if (PcAutoRouter.isIpInAnyLocalSubnet(pc.lastKnownIp)) 600 else 300
             )
+            var resolvedIp = pc.lastKnownIp
+            if (result.isFailure && preferences.isAutoUpdateIpEnabled) {
+                val discovered = PcAutoRouter.resolveTargetIp(context, pc)
+                if (!discovered.isNullOrBlank() && discovered != pc.lastKnownIp) {
+                    resolvedIp = discovered
+                    result = FlickHttpClient.ping(
+                        ip = discovered,
+                        port = pc.port,
+                        authToken = pc.authToken,
+                        pcSpkiPin = pc.pcSpkiPin,
+                        connectTimeoutMs = 500
+                    )
+                }
+            }
+            val hotspotNow = PcAutoRouter.isOnDirectHotspotSubnet(context, resolvedIp) || directHotspot
+            val updatedPc = if (result.isSuccess) preferences.getActivePc() else pc
             withContext(Dispatchers.Main) {
-                onlineState = result.getOrElse { PcOnlineState(isOnline = false) }
+                if (updatedPc != null) activePc = updatedPc
+                onlineState = result
+                    .map { it.copy(isHotspotDirect = hotspotNow) }
+                    .getOrElse { PcOnlineState(isOnline = false) }
                 isPinging = false
             }
         }
     }
 
-    // Periodically check active PC status
+    // Periodically check active PC status (and auto-recover when switching to Hotspot during blackout)
     LaunchedEffect(activePc) {
         if (activePc != null) {
             checkPcHealth()
+        }
+    }
+
+    LaunchedEffect(activePc, onlineState.isOnline) {
+        while (activePc != null && !onlineState.isOnline) {
+            delay(3000)
+            if (!uploadState.isUploading) {
+                checkPcHealth(showSpinner = false)
+            }
         }
     }
 
@@ -307,18 +338,55 @@ fun HomeScreen(
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
                                     val statusTag = when {
-                                        uploadState.isUploading -> "TX: ${uploadState.progressPercent}% // [${uploadState.batchIndex + 1}/${uploadState.batchTotal}]"
+                                        uploadState.isUploading && uploadState.linkMode == "TURBO_NEGOTIATING" ->
+                                            "LINK: TURBO P2P // NEGOTIATING..."
+                                        uploadState.isUploading && uploadState.linkMode == "RESTORING" ->
+                                            "LINK: RESTORING HOME ROUTER..."
+                                        uploadState.isUploading && uploadState.linkMode == "TURBO_5G" ->
+                                            "TX: ${uploadState.progressPercent}% // TURBO 5GHZ DIRECT"
+                                        uploadState.isUploading && uploadState.linkMode == "HOTSPOT_DIRECT" ->
+                                            "TX: ${uploadState.progressPercent}% // HOTSPOT P2P DIRECT"
+                                        uploadState.isUploading ->
+                                            "TX: ${uploadState.progressPercent}% // [${uploadState.batchIndex + 1}/${uploadState.batchTotal}]"
                                         isPinging -> "LINK: SYNCING..."
+                                        onlineState.isOnline && onlineState.isHotspotDirect -> "LINK: HOTSPOT P2P // DIRECT"
                                         onlineState.isOnline -> "LINK: CONNECTED // TLS 1.3"
                                         else -> "LINK: OFFLINE // TAP REEL"
                                     }
-                                    Text(
-                                        text = statusTag,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontFamily = FontFamily.Monospace,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (uploadState.isUploading || onlineState.isOnline) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Text(
+                                            text = statusTag,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (uploadState.isUploading || onlineState.isOnline) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        val linkBadge = when {
+                                            uploadState.isUploading && uploadState.linkMode == "TURBO_5G" -> "TURBO 5G"
+                                            uploadState.isUploading && uploadState.linkMode == "HOTSPOT_DIRECT" -> "HOTSPOT"
+                                            !uploadState.isUploading && onlineState.isOnline && onlineState.isHotspotDirect -> "HOTSPOT"
+                                            else -> null
+                                        }
+                                        if (linkBadge != null) {
+                                            Surface(
+                                                shape = RoundedCornerShape(4.dp),
+                                                color = MaterialTheme.colorScheme.primary
+                                            ) {
+                                                Text(
+                                                    text = linkBadge,
+                                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    fontFamily = FontFamily.Monospace,
+                                                    fontWeight = FontWeight.Black,
+                                                    fontSize = 9.sp,
+                                                    color = Color.White
+                                                )
+                                            }
+                                        }
+                                    }
 
                                     Spacer(modifier = Modifier.height(3.dp))
 

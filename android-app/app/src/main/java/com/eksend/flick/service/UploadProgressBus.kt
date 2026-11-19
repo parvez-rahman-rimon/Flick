@@ -11,7 +11,8 @@ data class ActiveUploadState(
     val totalBytes: Long = 0L,
     val speedBps: Long = 0L,
     val batchIndex: Int = 0,
-    val batchTotal: Int = 1
+    val batchTotal: Int = 1,
+    val linkMode: String = "LAN" // "LAN", "TURBO_NEGOTIATING", "TURBO_5G", "RESTORING"
 ) {
     val progressPercent: Int
         get() = if (totalBytes > 0) ((bytesSent * 100) / totalBytes).toInt().coerceIn(0, 100) else 0
@@ -37,7 +38,8 @@ object UploadProgressBus {
         totalBytes: Long,
         speedBps: Long,
         batchIndex: Int,
-        batchTotal: Int
+        batchTotal: Int,
+        linkMode: String = _state.value.linkMode
     ) {
         _state.value = ActiveUploadState(
             isUploading = true,
@@ -46,11 +48,20 @@ object UploadProgressBus {
             totalBytes = totalBytes,
             speedBps = speedBps,
             batchIndex = batchIndex,
-            batchTotal = batchTotal
+            batchTotal = batchTotal,
+            linkMode = linkMode
+        )
+    }
+
+    fun updateLinkMode(linkMode: String, fileName: String = _state.value.fileName) {
+        _state.value = _state.value.copy(
+            isUploading = true,
+            fileName = fileName,
+            linkMode = linkMode
         )
     }
 
     fun clear() {
-        _state.value = ActiveUploadState(isUploading = false)
+        _state.value = ActiveUploadState(isUploading = false, linkMode = "LAN")
     }
 }

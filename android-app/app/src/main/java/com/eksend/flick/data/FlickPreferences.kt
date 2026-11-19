@@ -19,8 +19,10 @@ class FlickPreferences(private val context: Context) {
         private const val KEY_CLIPBOARD_MODE = "clipboard_mode_override"
         private const val KEY_HAPTIC_ENABLED = "haptic_feedback_enabled"
         private const val KEY_AUTO_UPDATE_IP = "auto_update_ip_enabled"
+        private const val KEY_TURBO_LINK_ENABLED = "turbo_link_enabled"
         private const val KEY_RECENT_TRANSFERS = "recent_transfers_json"
         private const val MAX_TRANSFERS = 20
+        const val TURBO_THRESHOLD_BYTES = 150L * 1024L * 1024L // 150 MB
     }
 
     val clientId: String
@@ -54,6 +56,10 @@ class FlickPreferences(private val context: Context) {
     var isAutoUpdateIpEnabled: Boolean
         get() = prefs.getBoolean(KEY_AUTO_UPDATE_IP, true)
         set(value) = prefs.edit().putBoolean(KEY_AUTO_UPDATE_IP, value).apply()
+
+    var isTurboLinkEnabled: Boolean
+        get() = prefs.getBoolean(KEY_TURBO_LINK_ENABLED, true)
+        set(value) = prefs.edit().putBoolean(KEY_TURBO_LINK_ENABLED, value).apply()
 
     fun getPairedPcs(): List<PairedPc> {
         val jsonStr = prefs.getString(KEY_PAIRED_PCS, "[]") ?: "[]"

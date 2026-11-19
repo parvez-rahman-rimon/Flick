@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FLICK — Frictionless File Transfer</title>
+  <meta name="description" content="Instant local Wi-Fi file streaming &amp; clipboard beaming between Android and Windows. Pure Rust native engine, zero cloud, instant Ctrl+V, works even during power cuts.">
+  
+  <!-- Favicon -->
+  <link rel="icon" type="image/x-icon" href="assets/flick.ico">
+  <link rel="icon" type="image/png" href="assets/flick.png">
+  
+  <!-- Preconnect Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Space+Grotesk:wght@500;600;700;800&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+  
+  <!-- Main Stylesheet -->
+  <link rel="stylesheet" href="style.css">
+
+  <!-- Open Graph / Meta -->
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="FLICK — Frictionless File Transfer">
+  <meta property="og:description" content="Instant local Wi-Fi file streaming &amp; clipboard beaming between Android and Windows. Pure Rust native engine, zero cloud, instant Ctrl+V.">
+  <meta property="og:image" content="assets/flick.png">
+  <meta name="twitter:card" content="summary">
+</head>
+<body>
+
+  <!-- Main Navigation -->
+  <header class="site-header">
+    <div class="container header-inner">
+      <a href="#" class="brand-link" aria-label="Flick Home">
+        <img src="assets/flick.png" alt="Flick Emblem" class="brand-logo" width="34" height="34">
+        <div class="brand-text">
+          <span class="brand-title">FLICK</span>
+          <span class="brand-sub">FRICTIONLESS FILE TRANSFER</span>
+        </div>
+      </a>
+
+      <nav class="site-nav" aria-label="Main Navigation">
+        <a href="#workflow" class="nav-link">Workflow</a>
+        <a href="#screens" class="nav-link">Screenshots</a>
+        <a href="#powercut" class="nav-link">Power-Cut Mode</a>
+        <a href="#modes" class="nav-link">Clipboard Engine</a>
+        <a href="#specs" class="nav-link">Specs</a>
+      </nav>
+
+      <div class="header-action">
+        <a href="#downloads" class="btn-compact">
+          <span class="btn-text">GET BINARIES</span>
+          <span class="btn-arrow" aria-hidden="true">↓</span>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- ============================================== -->
+    <!-- HERO SECTION                                   -->
+    <!-- ============================================== -->
+    <section class="hero-section">
+      <div class="container hero-container">
+        
+        <div class="hero-chassis">
+          <!-- Industrial Hardware Label Header -->
+          <div class="chassis-header">
+            <div class="chassis-id">
+              <span class="id-code">REF // TE-RX1-2026</span>
+              <span class="id-sep">|</span>
+              <span class="id-desc">FRICTIONLESS FILE TRANSFER</span>
+            </div>
+            <div class="chassis-band">
+              <span class="band-tag">5GHz P2P DIRECT • POWER-CUT READY</span>
+            </div>
+          </div>
+
+          <!-- Hero Main Content -->
+          <div class="hero-content">
+            <h1 class="hero-headline">
+              Phone to PC in a blink.<br>
+              <span class="headline-contrast">Zero Cloud. Just <span class="key-badge">Ctrl + V</span>.</span>
+            </h1>
+
+            <p class="hero-summary">
+              Instant bi-directional file streaming and clipboard injection over high-speed local Wi-Fi. 
+              Skip cloud latency, chat uploads, and drive folders. Tap share or give it a flick on your phone, then press 
+              <kbd>Ctrl + V</kbd> anywhere on your Windows PC.
+            </p>
+
+            <!-- Tactile Master Download Buttons -->
+            <div class="hero-actions">
+              
+              <!-- ============================================================ -->
+              <!-- WINDOWS DOWNLOAD BUTTON PLACEHOLDER                           -->
+              <!-- Replace href="#" with your actual GitHub Release or R2 URL   -->
+              <!-- Example: href="https://github.com/user/repo/releases/...exe" -->
+              <!-- ============================================================ -->
+              <a href="#" 
+                 class="keycap-btn keycap-orange" 
+                 id="download-windows" 
+                 data-target="windows"
+                 title="Download Flick for Windows (Standalone .exe)">
+                <div class="keycap-cap">
+                  <div class="keycap-slot">
+                    <span class="slot-idx">F1</span>
+                    <span class="slot-platform">WINDOWS RECEIVER</span>
+                  </div>
+                  <div class="keycap-main">
+                    <span class="keycap-title">Download Flick.exe</span>
+                    <span class="keycap-meta">v2.0.1 • Standalone Rust PE64 • ~2.5 MB</span>
+                  </div>
+                </div>
+                <div class="keycap-lip"></div>
+              </a>
+
+              <!-- ============================================================ -->
+              <!-- ANDROID DOWNLOAD BUTTON PLACEHOLDER                           -->
+              <!-- Replace href="#" with your actual GitHub Release or R2 URL   -->
+              <!-- Example: href="https://github.com/user/repo/releases/...apk" -->
+              <!-- ============================================================ -->
+              <a href="#" 
+                 class="keycap-btn keycap-slate" 
+                 id="download-android" 
+                 data-target="android"
+                 title="Download Flick for Android (.apk)">
+                <div class="keycap-cap">
+                  <div class="keycap-slot">
+                    <span class="slot-idx">F2</span>
+                    <span class="slot-platform">ANDROID COMPANION</span>
+                  </div>
+                  <div class="keycap-main">
+                    <span class="keycap-title">Download Flick.apk</span>
+                    <span class="keycap-meta">v2.3.0 • Jetpack Compose Native • ~19 MB</span>
+                  </div>
+                </div>
+                <div class="keycap-lip"></div>
+              </a>
+
+            </div>
+
+            <!-- Trust Bar / Offline Guarantee -->
+            <div class="hero-trust-bar">
+              <div class="trust-item">
+                <span class="trust-k">PRIVACY</span>
+                <span class="trust-v">100% Local LAN • Zero Cloud</span>
+              </div>
+              <div class="trust-sep">/</div>
+              <div class="trust-item">
+                <span class="trust-k">POWER-CUT</span>
+                <span class="trust-v">Works Completely Offline on Hotspot</span>
+              </div>
+              <div class="trust-sep">/</div>
+              <div class="trust-item">
+                <span class="trust-k">RUNTIME</span>
+                <span class="trust-v">Pure Rust Native • ~3.4 MB RAM</span>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Hero Telemetry Matrix Footer -->
+          <div class="chassis-footer">
+            <div class="telemetry-cell">
+              <span class="cell-label">TRANSFER LATENCY</span>
+              <span class="cell-data">&lt; 50 MS</span>
+            </div>
+            <div class="telemetry-cell">
+              <span class="cell-label">TURBO LINK SPEED</span>
+              <span class="cell-data">36.5+ MB/S</span>
+            </div>
+            <div class="telemetry-cell">
+              <span class="cell-label">SECURITY PROTOCOL</span>
+              <span class="cell-data">TLS 1.3 // P-256</span>
+            </div>
+            <div class="telemetry-cell">
+              <span class="cell-label">INJECTION TARGET</span>
+              <span class="cell-data">WIN32 CF_HDROP</span>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ============================================== -->
+    <!-- REAL PRODUCT SCREENSHOTS (AUTHENTIC UI)        -->
+    <!-- ============================================== -->
+    <section class="section" id="screens">
+      <div class="container">
+        
+        <div class="section-header">
+          <div class="section-kicker">PHYSICAL INSTRUMENT INTERFACE</div>
+          <h2 class="section-title">Built with Teenage Engineering hardware aesthetics.</h2>
+          <p class="section-desc">
+            Authentic software crafted like precision field audio equipment: tactile keycaps, 
+            monochrome telemetry displays, and machined obsidian surfaces.
+          </p>
+        </div>
+
+        <div class="screens-grid">
+          
+          <!-- Screen 1: Android TX-1 Home -->
+          <div class="screen-item">
+            <div class="screen-frame">
+              <div class="screen-top-bar">
+                <span class="screen-title">TX-1 // TRANSCEIVER DASHBOARD</span>
+                <span class="screen-tag">JETPACK COMPOSE</span>
+              </div>
+              <div class="screen-img-wrap">
+                <img src="assets/tx1-android-home.jpg" alt="Flick TX-1 Android Companion Interface" class="product-screen" loading="lazy">
+              </div>
+            </div>
+            <div class="screen-caption">
+              <span class="caption-title">Live Peer Telemetry &amp; Master Bento Deck</span>
+              <span class="caption-desc">Rotating TP-7 motorized reel, link RTT monitor, tactile F1/F2 action switches, and session history.</span>
+            </div>
+          </div>
+
+          <!-- Screen 2: Spatial Flick Deck -->
+          <div class="screen-item">
+            <div class="screen-frame">
+              <div class="screen-top-bar">
+                <span class="screen-title">SPATIAL FLICK DECK // GESTURE CANVAS</span>
+                <span class="screen-tag">PHYSICS ENGINE</span>
+              </div>
+              <div class="screen-img-wrap">
+                <img src="assets/tx1-spatial-deck.jpg" alt="Flick Spatial Deck Gesture Screen" class="product-screen" loading="lazy">
+              </div>
+            </div>
+            <div class="screen-caption">
+              <span class="caption-title">Give it a Little Flick</span>
+              <span class="caption-desc">Effortless flick gesture detection: swipe up or shake phone to eject single cards or beam the whole stack.</span>
+            </div>
+          </div>
+
+          <!-- Screen 3: 3D Perspective Card Fan -->
+          <div class="screen-item">
+            <div class="screen-frame">
+              <div class="screen-top-bar">
+                <span class="screen-title">PERSPECTIVE CARD FLIGHT // 3D CANVAS</span>
+                <span class="screen-tag">SPATIAL UI</span>
+              </div>
+              <div class="screen-img-wrap">
+                <img src="assets/tx1-deck-fan.jpg" alt="Flick 3D Spatial Deck Flight Preview" class="product-screen" loading="lazy">
+              </div>
+            </div>
+            <div class="screen-caption">
+              <span class="caption-title">Multi-Card 3D Fan Array</span>
+              <span class="caption-desc">Real-time first-frame video and PDF thumbnail extraction with depth perspectives.</span>
+            </div>
+          </div>
+
+          <!-- Screen 4: Windows RX-1 Dashboard -->
+          <div class="screen-item">
+            <div class="screen-frame">
+              <div class="screen-top-bar">
+                <span class="screen-title">RX-1 // WINDOWS FIELD RECEIVER</span>
+                <span class="screen-tag">PURE RUST PE64</span>
+              </div>
+              <div class="screen-img-wrap">
+                <img src="assets/rx1-dashboard.png" alt="Flick RX-1 Windows Receiver Telemetry Dashboard" class="product-screen" loading="lazy">
+              </div>
+            </div>
+            <div class="screen-caption">
+              <span class="caption-title">Pure Rust Native Daemon (~3.4 MB RAM)</span>
+              <span class="caption-desc">Zero runtime dependencies, 2MB buffered disk writers, and silent Win32 notifications.</span>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ============================================== -->
+    <!-- POWER-CUT & OFFLINE DIRECT MODE                -->
+    <!-- ============================================== -->
+    <section class="section" id="powercut">
+      <div class="container">
+        
+        <div class="powercut-panel">
+          <div class="powercut-grid">
+            
+            <div class="powercut-content">
+              <div class="section-kicker">RESILIENT ARCHITECTURE</div>
+              <h2 class="powercut-title">Works seamlessly during power cuts &amp; load shedding.</h2>
+              <p class="powercut-desc">
+                When your home router goes down in a power outage, Flick doesn't stop. 
+                Simply turn on your phone's Portable Hotspot. Flick automatically detects direct hotspot subnets 
+                (<code>ap0</code> / <code>swlan0</code>) and routes all file transfers through direct peer-to-peer Wi-Fi.
+              </p>
+
+              <div class="powercut-specs">
+                <div class="pc-spec-item">
+                  <span class="pc-spec-val">&lt; 50 ms</span>
+                  <span class="pc-spec-label">Subnet Hotspot Discovery via UDP :45457 Probe</span>
+                </div>
+                <div class="pc-spec-item">
+                  <span class="pc-spec-val">36+ MB/s</span>
+                  <span class="pc-spec-label">Direct Wi-Fi Streaming Speed (Zero Router Bottleneck)</span>
+                </div>
+                <div class="pc-spec-item">
+                  <span class="pc-spec-val">0 KB</span>
+                  <span class="pc-spec-label">Internet / Cellular Mobile Data Consumed</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="powercut-terminal">
+              <div class="terminal-header">
+                <span class="term-title">TELEMETRY // POWER-CUT DIRECT LINK</span>
+                <span class="term-tag">OFFLINE READY</span>
+              </div>
+              <div class="terminal-code">
+<span class="code-comment">// 1. Home router offline (No 192.168.0.1 gateway)</span>
+<span class="code-accent">ROUTER_STATUS:</span> DOWN // POWER-CUT DETECTED
+<span class="code-comment">// 2. Multi-homed probe answers on UDP :45457</span>
+<span class="code-accent">HOTSPOT_IFACE:</span> ap0 / swlan0 DETECTED
+<span class="code-accent">LINK_TOPOLOGY:</span> P2P DIRECT (NO ROUTER)
+<span class="code-accent">CRYPTO:</span> MUTUAL TLS 1.3 (P-256 ECDSA)
+<span class="code-accent">THROUGHPUT:</span> 36.73 MB/s (293.8 Mbps)
+<span class="code-accent">STATUS:</span> <span class="code-white">INJECTED DIRECTLY TO WIN32 CLIPBOARD</span>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ============================================== -->
+    <!-- HOW IT WORKS (3-STAGE WORKFLOW)                -->
+    <!-- ============================================== -->
+    <section class="section" id="workflow">
+      <div class="container">
+        
+        <div class="section-header">
+          <div class="section-kicker">WORKFLOW</div>
+          <h2 class="section-title">From your phone screen into your desktop clipboard.</h2>
+          <p class="section-desc">
+            No cloud uploading. No WhatsApp chat web scraping. No digging through messy download folders.
+          </p>
+        </div>
+
+        <div class="workflow-grid">
+          
+          <!-- Step 1 -->
+          <div class="workflow-card">
+            <div class="card-machined-top">
+              <span class="card-step-num">STAGE 01</span>
+              <span class="card-system-tag">ANDROID SHARE TARGET</span>
+            </div>
+            <div class="card-body">
+              <h3 class="card-title">1-Tap Share from Any App</h3>
+              <p class="card-text">
+                Select photos, videos, or documents in your Gallery, Photos, or File Manager. 
+                Tap <strong>Flick to PC ⚡</strong> from the native share sheet, or swipe up on the Spatial Flick Deck. 
+                A tactile haptic pulse confirms instant dispatch.
+              </p>
+              <div class="terminal-pill">
+                <code>TeleportShareActivity // &lt; 50ms dispatch</code>
+              </div>
+            </div>
+          </div>
+
+          <!-- Step 2 -->
+          <div class="workflow-card">
+            <div class="card-machined-top">
+              <span class="card-step-num">STAGE 02</span>
+              <span class="card-system-tag">5GHz DIRECT TRANSPORT</span>
+            </div>
+            <div class="card-body">
+              <h3 class="card-title">Local Wi-Fi &amp; Turbo Link</h3>
+              <p class="card-text">
+                Payloads stream directly over local Wi-Fi with hardware-accelerated TLS 1.3 encryption. 
+                For large media files (up to 4 GB+), Flick Turbo Link autonomously engages direct 5GHz P2P 
+                streaming at <strong>36.5+ MB/s</strong> with zero-dropout restoration.
+              </p>
+              <div class="terminal-pill">
+                <code>P2P Channel 149 // 306.4 Mbps throughput</code>
+              </div>
+            </div>
+          </div>
+
+          <!-- Step 3 -->
+          <div class="workflow-card">
+            <div class="card-machined-top">
+              <span class="card-step-num">STAGE 03</span>
+              <span class="card-system-tag">WIN32 ATOMIC INJECTION</span>
+            </div>
+            <div class="card-body">
+              <h3 class="card-title">Hit Ctrl + V on Windows</h3>
+              <p class="card-text">
+                The native Rust receiver receives the stream and injects it atomically into the Windows clipboard. 
+                Press <kbd>Ctrl + V</kbd> inside File Explorer, Cursor, VS Code, Discord, or Figma—and your payload is right there.
+              </p>
+              <div class="terminal-pill">
+                <code>CF_HDROP + CF_DIB + CF_UNICODETEXT</code>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ============================================== -->
+    <!-- INTERACTIVE 3-WAY ROCKER SWITCH                -->
+    <!-- ============================================== -->
+    <section class="section" id="modes">
+      <div class="container">
+        
+        <div class="interactive-panel">
+          <div class="panel-header">
+            <div class="panel-title-group">
+              <div class="section-kicker">PHYSICAL ROCKER SELECTOR</div>
+              <h2 class="panel-title">Smart Multi-Format Clipboard Engine</h2>
+            </div>
+            <div class="panel-desc">
+              Flick doesn't just copy a string. It populates the native Win32 clipboard with three formats simultaneously so every Windows program receives exactly what it expects.
+            </div>
+          </div>
+
+          <!-- Hardware Rocker Switch -->
+          <div class="rocker-assembly">
+            <div class="rocker-label">SELECT CLIPBOARD MODE:</div>
+            <div class="rocker-switch" role="tablist" aria-label="Clipboard Modes">
+              <button class="rocker-key active" role="tab" aria-selected="true" data-mode="multi" id="mode-multi">
+                <span class="key-index">01</span>
+                <span class="key-name">SMART MULTI</span>
+              </button>
+              <button class="rocker-key" role="tab" aria-selected="false" data-mode="path" id="mode-path">
+                <span class="key-index">02</span>
+                <span class="key-name">FORCE PATH</span>
+              </button>
+              <button class="rocker-key" role="tab" aria-selected="false" data-mode="bitmap" id="mode-bitmap">
+                <span class="key-index">03</span>
+                <span class="key-name">FORCE BITMAP</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Dynamic Behavior Telemetry Matrix -->
+          <div class="behavior-display" id="behavior-display">
+            <div class="display-header">
+              <span class="display-mode-name" id="display-mode-name">MODE: 01 SMART_MULTI (RECOMMENDED)</span>
+              <span class="display-spec" id="display-spec">INJECTS: CF_HDROP + CF_UNICODETEXT + CF_DIB</span>
+            </div>
+            
+            <div class="behavior-table-wrap">
+              <table class="behavior-table">
+                <thead>
+                  <tr>
+                    <th>TARGET WINDOWS APPLICATION</th>
+                    <th>FORMAT CONSUMED ON CTRL + V</th>
+                    <th>RESULTING EXPERIENCE</th>
+                  </tr>
+                </thead>
+                <tbody id="behavior-tbody">
+                  <tr>
+                    <td><code>File Explorer</code></td>
+                    <td><span class="fmt-badge">CF_HDROP</span></td>
+                    <td>Pastes actual file copy into directory</td>
+                  </tr>
+                  <tr>
+                    <td><code>Cursor / Antigravity / Claude</code></td>
+                    <td><span class="fmt-badge">CF_HDROP / CF_DIB</span></td>
+                    <td>Attaches image directly into AI promptbox</td>
+                  </tr>
+                  <tr>
+                    <td><code>Windows Terminal / PowerShell</code></td>
+                    <td><span class="fmt-badge">CF_UNICODETEXT</span></td>
+                    <td>Pastes full absolute local path string</td>
+                  </tr>
+                  <tr>
+                    <td><code>Figma / MS Paint / Photoshop</code></td>
+                    <td><span class="fmt-badge">CF_DIB</span></td>
+                    <td>Pastes raw uncompressed 24-bit bitmap onto canvas</td>
+                  </tr>
+                  <tr>
+                    <td><code>WhatsApp Web / Discord / Chrome</code></td>
+                    <td><span class="fmt-badge">CF_HDROP / CF_DIB</span></td>
+                    <td>Uploads image directly into message composer</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+          </div>
+
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ============================================== -->
+    <!-- TECHNICAL SPECS & ARCHITECTURE                 -->
+    <!-- ============================================== -->
+    <section class="section" id="specs">
+      <div class="container">
+        
+        <div class="section-header">
+          <div class="section-kicker">ENGINEERING COMPARISON</div>
+          <h2 class="section-title">Built for engineers who care about zero bloat.</h2>
+          <p class="section-desc">
+            How Flick measures against traditional Bluetooth, cloud messengers, and heavy Electron companion suites.
+          </p>
+        </div>
+
+        <div class="specs-table-wrap">
+          <table class="specs-table">
+            <thead>
+              <tr>
+                <th>SPECIFICATION / METRIC</th>
+                <th class="col-highlight">FLICK COMPANION</th>
+                <th>BLUETOOTH / NEARBY</th>
+                <th>CLOUD MESSENGERS</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>Transfer Latency</strong></td>
+                <td class="col-highlight text-orange">&lt; 50 ms (Direct Local UDP)</td>
+                <td>3,000 – 10,000 ms</td>
+                <td>2,000 – 5,000 ms + upload delay</td>
+              </tr>
+              <tr>
+                <td><strong>Peak Throughput</strong></td>
+                <td class="col-highlight text-orange">36.5+ MB/s (Turbo 5GHz)</td>
+                <td>0.2 – 1.8 MB/s</td>
+                <td>Capped by home internet upload</td>
+              </tr>
+              <tr>
+                <td><strong>Windows Destination</strong></td>
+                <td class="col-highlight text-orange">Direct OS Clipboard (Ctrl+V)</td>
+                <td>Downloads folder dialog</td>
+                <td>Saved files / Web browser cache</td>
+              </tr>
+              <tr>
+                <td><strong>PC RAM Footprint</strong></td>
+                <td class="col-highlight text-orange">~3.4 MB (Native Rust PE64)</td>
+                <td>OS background service</td>
+                <td>150 MB – 600 MB (Electron)</td>
+              </tr>
+              <tr>
+                <td><strong>Internet / Cloud Dependency</strong></td>
+                <td class="col-highlight text-orange">Zero (100% Offline / LAN)</td>
+                <td>Often requires cloud auth</td>
+                <td>Requires active public internet</td>
+              </tr>
+              <tr>
+                <td><strong>Security Architecture</strong></td>
+                <td class="col-highlight text-orange">Mutual TLS 1.3 (P-256 ECDSA)</td>
+                <td>PIN / Bluetooth pairing</td>
+                <td>Third-party company servers</td>
+              </tr>
+              <tr>
+                <td><strong>Power-Cut / Offline Hotspot</strong></td>
+                <td class="col-highlight text-orange">Full 36+ MB/s (UDP :45457 Probe)</td>
+                <td>Slow</td>
+                <td>Does not work</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ============================================== -->
+    <!-- DOWNLOAD HUB                                   -->
+    <!-- ============================================== -->
+    <section class="section section-download-hub" id="downloads">
+      <div class="container">
+        
+        <div class="section-header text-center">
+          <div class="section-kicker">BINARIES</div>
+          <h2 class="section-title">Get Flick for your workstation &amp; phone.</h2>
+          <p class="section-desc">
+            No installer wizard needed. Standalone executables ready to run immediately.
+          </p>
+        </div>
+
+        <div class="download-cards-grid">
+          
+          <!-- Windows Card -->
+          <div class="download-card">
+            <div class="dl-card-header">
+              <span class="dl-badge">WINDOWS PE64</span>
+              <span class="dl-version">v2.0.1 RELEASE</span>
+            </div>
+            <div class="dl-card-body">
+              <h3 class="dl-title">Flick for Windows</h3>
+              <p class="dl-desc">
+                High-performance pure Rust receiver daemon. Runs silently in the system tray, 
+                listens on UDP 45454/TCP 45455, and handles atomic Win32 clipboard injection.
+              </p>
+              
+              <ul class="dl-features-list">
+                <li>Standalone executable (zero Python/runtime required)</li>
+                <li>Silent background tray companion (zero hotkey conflicts)</li>
+                <li>Private working set: only ~3.4 MB RAM</li>
+                <li>NTFS MOTW &amp; dangerous extension quarantine</li>
+              </ul>
+
+              <!-- ============================================================ -->
+              <!-- WINDOWS DOWNLOAD LINK PLACEHOLDER                             -->
+              <!-- Replace href="#" with your download URL                      -->
+              <!-- ============================================================ -->
+              <a href="#" class="btn-download btn-download-orange" id="card-download-windows">
+                <span>DOWNLOAD FLICK.EXE</span>
+                <span class="dl-size">~2.5 MB</span>
+              </a>
+
+              <div class="dl-note">Compatible with Windows 10 &amp; Windows 11 (64-bit)</div>
+            </div>
+          </div>
+
+          <!-- Android Card -->
+          <div class="download-card">
+            <div class="dl-card-header">
+              <span class="dl-badge">ANDROID APK</span>
+              <span class="dl-version">v2.3.0 TURBO</span>
+            </div>
+            <div class="dl-card-body">
+              <h3 class="dl-title">Flick Companion for Android</h3>
+              <p class="dl-desc">
+                Native Kotlin &amp; Jetpack Compose application. Features the 3D Spatial Flick Deck, 
+                zero-latency Wi-Fi lock, and automated Turbo Link P2P direct Wi-Fi engine.
+              </p>
+              
+              <ul class="dl-features-list">
+                <li>Zero-UI 1-tap share target (under 50ms dispatch)</li>
+                <li>Android Keystore StrongBox / TEE hardware encryption</li>
+                <li>Dual-pulse tactile haptic feedback on send</li>
+                <li>Supports offline mobile hotspot transfers during power cuts</li>
+              </ul>
+
+              <!-- ============================================================ -->
+              <!-- ANDROID DOWNLOAD LINK PLACEHOLDER                             -->
+              <!-- Replace href="#" with your download URL                      -->
+              <!-- ============================================================ -->
+              <a href="#" class="btn-download btn-download-slate" id="card-download-android">
+                <span>DOWNLOAD FLICK.APK</span>
+                <span class="dl-size">~19 MB</span>
+              </a>
+
+              <div class="dl-note">Compatible with Android 8.0+ (Oreo through Android 15/16)</div>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ============================================== -->
+  <!-- FOOTER                                         -->
+  <!-- ============================================== -->
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <div class="footer-left">
+        <div class="footer-brand">FLICK // FRICTIONLESS FILE TRANSFER</div>
+        <div class="footer-copy">Designed with authentic Teenage Engineering industrial hardware principles.</div>
+      </div>
+      
+      <div class="footer-right">
+        <div class="footer-meta">
+          <span>PORTS: TCP 45455 / UDP 45454 / PROBE 45457</span>
+          <span class="meta-sep">•</span>
+          <span>DISCOVERY: V2 HMAC-SHA256</span>
+          <span class="meta-sep">•</span>
+          <span>ZERO TELEMETRY</span>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Script -->
+  <script src="app.js"></script>
+</body>
+</html>

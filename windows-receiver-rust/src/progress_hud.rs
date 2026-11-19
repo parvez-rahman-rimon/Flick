@@ -39,6 +39,7 @@ struct HudState {
     file_name: String,
     percent: u32,
     speed_mb: f64,
+    is_turbo: bool,
     is_visible: bool,
     pos_x: i32,
     pos_y: i32,
@@ -56,7 +57,12 @@ static HUD_HWND: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
 static HUD_STATE: Mutex<Option<HudState>> = Mutex::new(None);
 static HUD_UPDATE_PENDING: AtomicBool = AtomicBool::new(false);
 
+#[allow(dead_code)]
 pub fn update_progress(file_name: &str, percent: u32, speed_mb: f64) {
+    update_progress_ex(file_name, percent, speed_mb, false);
+}
+
+pub fn update_progress_ex(file_name: &str, percent: u32, speed_mb: f64, is_turbo: bool) {
     ensure_hud_window();
 
     let hwnd = HUD_HWND.load(Ordering::SeqCst) as HWND;
@@ -70,6 +76,7 @@ pub fn update_progress(file_name: &str, percent: u32, speed_mb: f64) {
             s.file_name = file_name.to_string();
             s.percent = percent.min(100);
             s.speed_mb = speed_mb;
+            s.is_turbo = is_turbo;
         }
     }
 
@@ -204,6 +211,7 @@ fn run_hud_thread() {
                 file_name: String::new(),
                 percent: 0,
                 speed_mb: 0.0,
+                is_turbo: false,
                 is_visible: false,
                 pos_x: x,
                 pos_y: y,
@@ -280,13 +288,18 @@ unsafe fn render_and_commit(hwnd: HWND) {
         0x0D0E10, 235, 0x25282E, 255,
     );
 
-    // 3. Draw Header Row: "⚡ FLICK // TELEPORT" (Safety Orange #FF4400) + Speed & %
+    // 3. Draw Header Row: "⚡ FLICK // TURBO 5G" or "⚡ FLICK // TELEPORT" (Safety Orange #FF4400) + Speed & %
+    let header_title = if s.is_turbo {
+        "⚡ FLICK // TURBO 5G"
+    } else {
+        "⚡ FLICK // TELEPORT"
+    };
     draw_hud_text(
         s.mem_dc,
         buffer,
         HUD_W,
         HUD_H,
-        "⚡ FLICK // TELEPORT",
+        header_title,
         14,
         8,
         180,

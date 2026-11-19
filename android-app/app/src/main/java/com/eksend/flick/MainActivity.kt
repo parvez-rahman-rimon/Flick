@@ -5,6 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -24,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
 import com.eksend.flick.crypto.KeystoreManager
 import com.eksend.flick.data.FlickPreferences
+import com.eksend.flick.network.TurboLinkController
 import com.eksend.flick.network.UdpDiscoveryListener
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -42,12 +44,19 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var preferences: FlickPreferences
     private val udpDiscoveryListener = UdpDiscoveryListener()
+    private val turboPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { _ -> }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
         preferences = FlickPreferences(applicationContext)
+
+        if (preferences.isTurboLinkEnabled && !TurboLinkController.hasRequiredPermission(this)) {
+            turboPermissionLauncher.launch(TurboLinkController.requiredPermissionName())
+        }
 
         // Proactively generate hardware-backed ECDSA P-256 client keypair on first launch
         lifecycleScope.launch(Dispatchers.IO) {

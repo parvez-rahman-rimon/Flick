@@ -497,11 +497,113 @@ pub fn get_lan_ip() -> String {
     if let Ok(socket) = UdpSocket::bind("0.0.0.0:0") {
         if socket.connect("8.8.8.8:80").is_ok() {
             if let Ok(local_addr) = socket.local_addr() {
-                return local_addr.ip().to_string();
+                let ip_str = local_addr.ip().to_string();
+                if ip_str != "127.0.0.1" && !ip_str.starts_with("169.254.") {
+                    return ip_str;
+                }
             }
         }
     }
-    "127.0.0.1".to_string()
+    get_lan_ip_from_adapters().unwrap_or_else(|| "127.0.0.1".to_string())
+}
+
+fn is_private_rfc1918(ip: std::net::Ipv4Addr) -> bool {
+    let oct = ip.octets();
+    oct[0] == 192 && oct[1] == 168
+        || oct[0] == 10
+        || (oct[0] == 172 && (16..=31).contains(&oct[1]))
+}
+
+fn compute_broadcast(ip: std::net::Ipv4Addr, prefix_len: u8) -> std::net::Ipv4Addr {
+    let shift = 32u32.saturating_sub(prefix_len.min(32) as u32);
+    let mask = if shift == 32 { 0 } else { !0u32 << shift };
+    std::net::Ipv4Addr::from(u32::from(ip) | !mask)
+}
+
+/// Returns `(ip, subnet_broadcast)` pairs for all active non-loopback, non-APIPA IPv4 interfaces,
+/// ordered with physical Wi-Fi/Ethernet private RFC1918 networks first.
+pub fn get_active_ipv4_subnets() -> Vec<(std::net::Ipv4Addr, std::net::Ipv4Addr)> {
+    use std::net::Ipv4Addr;
+    use windows_sys::Win32::Foundation::{ERROR_BUFFER_OVERFLOW, ERROR_SUCCESS};
+    use windows_sys::Win32::NetworkManagement::IpHelper::{
+        GetAdaptersAddresses, IP_ADAPTER_ADDRESSES_LH,
+    };
+    use windows_sys::Win32::NetworkManagement::Ndis::IfOperStatusUp;
+    use windows_sys::Win32::Networking::WinSock::{AF_INET, SOCKADDR_IN};
+
+    let mut buf_len: u32 = 16384;
+    let mut buf: Vec<u8> = vec![0u8; buf_len as usize];
+
+    let mut ret = unsafe {
+        GetAdaptersAddresses(
+            AF_INET as u32,
+            0,
+            std::ptr::null(),
+            buf.as_mut_ptr() as *mut IP_ADAPTER_ADDRESSES_LH,
+            &mut buf_len,
+        )
+    };
+    if ret == ERROR_BUFFER_OVERFLOW {
+        buf.resize(buf_len as usize, 0);
+        ret = unsafe {
+            GetAdaptersAddresses(
+                AF_INET as u32,
+                0,
+                std::ptr::null(),
+                buf.as_mut_ptr() as *mut IP_ADAPTER_ADDRESSES_LH,
+                &mut buf_len,
+            )
+        };
+    }
+    if ret != ERROR_SUCCESS {
+        return Vec::new();
+    }
+
+    let mut scored: Vec<(u8, Ipv4Addr, Ipv4Addr)> = Vec::new();
+    let mut cur = buf.as_ptr() as *const IP_ADAPTER_ADDRESSES_LH;
+    while !cur.is_null() {
+        let adapter = unsafe { &*cur };
+        if adapter.OperStatus == IfOperStatusUp {
+            // IF_TYPE_IEEE80211 = 71, IF_TYPE_ETHERNET_CSMACD = 6
+            let is_phys_lan = adapter.IfType == 71 || adapter.IfType == 6;
+            let mut u_cur = adapter.FirstUnicastAddress;
+            while !u_cur.is_null() {
+                let u = unsafe { &*u_cur };
+                if !u.Address.lpSockaddr.is_null() {
+                    let sa = unsafe { &*(u.Address.lpSockaddr as *const SOCKADDR_IN) };
+                    if sa.sin_family as u32 == AF_INET as u32 {
+                        let raw = unsafe { sa.sin_addr.S_un.S_addr };
+                        let ip = Ipv4Addr::from(u32::from_be(raw));
+                        let oct = ip.octets();
+                        if oct[0] != 127 && !(oct[0] == 169 && oct[1] == 254) && !ip.is_unspecified() {
+                            let score = match (is_phys_lan, is_private_rfc1918(ip)) {
+                                (true, true) => 4,
+                                (false, true) => 3,
+                                (true, false) => 2,
+                                (false, false) => 1,
+                            };
+                            let bcast = compute_broadcast(ip, u.OnLinkPrefixLength);
+                            scored.push((score, ip, bcast));
+                        }
+                    }
+                }
+                u_cur = u.Next;
+            }
+        }
+        cur = adapter.Next;
+    }
+
+    scored.sort_by(|a, b| b.0.cmp(&a.0));
+    scored.into_iter().map(|(_, ip, bcast)| (ip, bcast)).collect()
+}
+
+/// Enumerates active Windows network adapters via `GetAdaptersAddresses` so LAN
+/// discovery works even on isolated offline hotspots with no default gateway.
+fn get_lan_ip_from_adapters() -> Option<String> {
+    get_active_ipv4_subnets()
+        .into_iter()
+        .next()
+        .map(|(ip, _)| ip.to_string())
 }
 
 pub fn get_subnet_broadcast(ip: &str) -> String {
@@ -510,5 +612,19 @@ pub fn get_subnet_broadcast(ip: &str) -> String {
         format!("{}.{}.{}.255", parts[0], parts[1], parts[2])
     } else {
         "255.255.255.255".to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lan_ip_adapter_enumeration_returns_non_loopback_when_connected() {
+        let ip = get_lan_ip();
+        assert!(!ip.is_empty());
+        if let Some(adapter_ip) = get_lan_ip_from_adapters() {
+            assert_ne!(adapter_ip, "127.0.0.1");
+        }
     }
 }

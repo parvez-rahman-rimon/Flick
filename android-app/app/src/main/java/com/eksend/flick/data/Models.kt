@@ -52,5 +52,6 @@ data class PcOnlineState(
     val isOnline: Boolean = false,
     val pingMs: Long = -1,
     val clipboardMode: ClipboardMode = ClipboardMode.SMART_MULTI,
-    val lastChecked: Long = System.currentTimeMillis()
+    val lastChecked: Long = System.currentTimeMillis(),
+    val isHotspotDirect: Boolean = false
 )

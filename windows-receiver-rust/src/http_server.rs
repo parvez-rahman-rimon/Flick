@@ -485,6 +485,22 @@ fn handle_connection(
             handle_clipboard(&mut tls_stream, &headers, &peer_ip);
         }
 
+        ("POST", "/turbo/initiate") => {
+            if !is_authenticated {
+                send_response(&mut tls_stream, 401, "Unauthorized", "application/json", b"{\"status\":\"error\",\"message\":\"Unauthorized\"}");
+                return;
+            }
+            handle_turbo_initiate(&mut tls_stream, &headers, &cfg);
+        }
+
+        ("POST", "/turbo/teardown") => {
+            if !is_authenticated {
+                send_response(&mut tls_stream, 401, "Unauthorized", "application/json", b"{\"status\":\"error\",\"message\":\"Unauthorized\"}");
+                return;
+            }
+            handle_turbo_teardown(&mut tls_stream, &headers);
+        }
+
         ("POST", "/v2/open-dashboard") => {
             if peer_ip == "127.0.0.1" || peer_ip == "::1" {
                 notify_main_window(101);
@@ -804,6 +820,8 @@ fn handle_upload<S: Read + Write>(
     }
 
     let temp_part_path = save_dir.join(format!("flick_tmp_{}.part", Uuid::new_v4()));
+    let turbo_guard = crate::turbo_wlan::begin_upload_guard(peer_ip);
+    let is_turbo = turbo_guard.is_turbo();
 
     // Stream chunks to disk with 2 MB buffered writer
     let start_time = Instant::now();
@@ -860,7 +878,7 @@ fn handle_upload<S: Read + Write>(
                         } else {
                             0.0
                         };
-                        crate::progress_hud::update_progress(&safe_name, percent, speed_mb);
+                        crate::progress_hud::update_progress_ex(&safe_name, percent, speed_mb, is_turbo);
                     }
                 } else if percent >= 90 {
                     crate::progress_hud::dismiss();
@@ -892,6 +910,10 @@ fn handle_upload<S: Read + Write>(
     set_zone_identifier(&final_path);
 
     let elapsed_ms = start_time.elapsed().as_millis();
+    log_http(&format!(
+        "Upload complete: {} ({} bytes in {}ms, turbo={})",
+        safe_name, content_len, elapsed_ms, is_turbo
+    ));
 
     // Mode override (resolve "DEFAULT" / empty header to configured receiver mode)
     let mode = resolve_upload_clipboard_mode(headers.get("x-clipboard-mode"), &cfg.clipboard_mode);
@@ -983,10 +1005,102 @@ fn handle_upload<S: Read + Write>(
         "saved_path": final_path.to_string_lossy(),
         "bytes_written": content_len,
         "clipboard_formats": applied_formats,
-        "elapsed_ms": elapsed_ms
+        "elapsed_ms": elapsed_ms,
+        "turbo": is_turbo
     });
 
     send_json_response(stream, 200, "OK", &resp);
+}
+
+#[derive(Deserialize)]
+struct TurboInitiatePayload {
+    ssid: String,
+    key: String,
+    session_id: String,
+}
+
+fn handle_turbo_initiate<S: Read + Write>(
+    stream: &mut S,
+    headers: &HashMap<String, String>,
+    cfg: &crate::config::FlickConfig,
+) {
+    let content_len: usize = headers
+        .get("content-length")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+
+    if content_len == 0 || content_len > MAX_PAIR_BODY_BYTES {
+        send_response(stream, 400, "Bad Request", "text/plain", b"Invalid Content-Length");
+        return;
+    }
+
+    let mut body = vec![0u8; content_len];
+    if stream.read_exact(&mut body).is_err() {
+        send_response(stream, 400, "Bad Request", "text/plain", b"Read error");
+        return;
+    }
+
+    let payload: TurboInitiatePayload = match serde_json::from_slice(&body) {
+        Ok(p) => p,
+        Err(_) => {
+            send_response(stream, 400, "Bad Request", "application/json", b"{\"status\":\"error\",\"message\":\"Invalid JSON\"}");
+            return;
+        }
+    };
+
+    match crate::turbo_wlan::initiate_turbo(
+        payload.ssid,
+        payload.key,
+        payload.session_id,
+        cfg.pc_id.clone(),
+        cfg.http_port,
+    ) {
+        Ok(()) => {
+            send_json_response(stream, 200, "OK", &json!({"status": "switching"}));
+        }
+        Err(reason) => {
+            log_http(&format!("[Turbo] Unsupported / rejected: {}", reason));
+            send_json_response(stream, 200, "OK", &json!({"status": "unsupported", "reason": reason}));
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct TurboTeardownPayload {
+    #[serde(default)]
+    session_id: String,
+}
+
+fn handle_turbo_teardown<S: Read + Write>(
+    stream: &mut S,
+    headers: &HashMap<String, String>,
+) {
+    let content_len: usize = headers
+        .get("content-length")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+    let mut session_id = String::new();
+    if content_len > 0 && content_len <= MAX_PAIR_BODY_BYTES {
+        let mut body = vec![0u8; content_len];
+        if stream.read_exact(&mut body).is_ok() {
+            if let Ok(p) = serde_json::from_slice::<TurboTeardownPayload>(&body) {
+                session_id = p.session_id;
+            }
+        }
+    }
+
+    send_json_response(stream, 200, "OK", &json!({"status": "restoring"}));
+
+    // Delay 30ms so the HTTP 200 ACK drains before Wi-Fi radio switches back to the router
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(30));
+        let sid = if session_id.is_empty() {
+            None
+        } else {
+            Some(session_id.as_str())
+        };
+        crate::turbo_wlan::restore_primary_wifi_for_session(sid, "client_teardown");
+    });
 }
 
 fn handle_clipboard<S: Read + Write>(

@@ -9,6 +9,7 @@ mod http_server;
 pub mod landing;
 pub mod progress_hud;
 mod tray;
+pub mod turbo_wlan;
 
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
@@ -264,6 +265,9 @@ fn main() {
     // 5. Enter Win32 Tray & GDI Message Loop on Main Thread
     tray::run_tray_message_loop(is_minimized, is_pair);
     log_boot("Tray loop exited! Process ending.");
+
+    // Ensure any active Turbo Wi-Fi session is cleanly restored on shutdown
+    turbo_wlan::restore_primary_wifi("process_exit");
 
     // Clean up mutex on shutdown
     if !h_mutex.is_null() {
